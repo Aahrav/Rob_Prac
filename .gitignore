@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.idea/
+.vscode/
+
+# Poetry
+poetry.lock
+
+# Project specific
+recordings/
+recordings/*.csv
+logs/*.log
+config.yaml
+.asseticache
+
+# OS
+.DS_Store
+Thumbs.db

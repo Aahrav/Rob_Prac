@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "appname"
+version = "0.1.0"
+description = "Real-Time Robotic Arm Simulation"
+authors = ["Krunal", "Veer", "Aarav", "Sujal"]
+readme = "README.md"
+packages = [{include = "backend"}, {include = "frontend"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyserial = "^3.0"
+PyQt6 = "^6.6"
+numpy = "^1.24"
+matplotlib = "^3.7"
+
+[tool.poetry.scripts]
+app = "frontend.app:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
