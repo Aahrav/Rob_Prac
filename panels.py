@@ -24,11 +24,13 @@ class MainWindow(QMainWindow):
 
         # Left panel
         self.left_panel = QFrame()
-        self.left_panel.setStyleSheet("background-color: #2c2c2c;")
+        self.left_panel.setStyleSheet("""background-color: #2c2c2c;
+                                      border: 1px solid #444;""")
 
         # Right panel
         self.right_panel = QFrame()
-        self.right_panel.setStyleSheet("background-color: #1e1e1e;")
+        self.right_panel.setStyleSheet("""background-color: #1e1e1e;
+                                       border: 1px solid #444;""")
 
         # Add panels to layout
         layout.addWidget(self.left_panel)
