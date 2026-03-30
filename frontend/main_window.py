@@ -4,6 +4,7 @@ MainWindow for the simulation application.
 Holds the left panel (controls) and right panel (3D visualization).
 """
 
+import sys
 from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 
@@ -171,6 +172,7 @@ class MainWindow(QMainWindow):
 
     def _start_interactive(self):
         """Start interactive mode - target angles from trajectory panel."""
+        print("DEBUG: Starting interactive mode", file=sys.stderr)
         self.interactive_controller = type('InteractiveCtrl', (), {
             'active': True,
             'target': [0.0, 0.0, 0.0]
@@ -200,11 +202,17 @@ class MainWindow(QMainWindow):
 
     def _on_target_angles(self, roll: float, pitch: float, yaw: float):
         """Handle target angles from trajectory panel (interactive mode)."""
+        print(f"DEBUG: MainWindow received target angles: ({roll}, {pitch}, {yaw})", file=sys.stderr)
         if self.interactive_controller and self.interactive_controller.active:
             self._apply_target_angles(roll, pitch, yaw)
+        else:
+            print("DEBUG: interactive_controller not active, ignoring", file=sys.stderr)
 
     def _apply_target_angles(self, roll: float, pitch: float, yaw: float):
         """Apply target angles to arm immediately (no animation)."""
+        print(f"DEBUG: _apply_target_angles({roll}, {pitch}, {yaw})", file=sys.stderr)
         self.data_panel.update_values(roll, pitch, yaw)
         positions = compute_arm_positions(roll, pitch, yaw)
         self.arm_canvas.draw_arm(positions)
+        # Keep trajectory panel in sync
+        self.trajectory_panel.set_current_angles(roll, pitch, yaw)

@@ -4,6 +4,7 @@ TrajectoryPanel - Interactive control for moving the arm to a target position.
 Set XYZ coordinates, compute IK, and optionally animate the movement.
 """
 
+import sys
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel, QSlider, QPushButton, QDoubleSpinBox, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
@@ -146,37 +147,36 @@ class TrajectoryPanel(QGroupBox):
         q3 = (q3 + 180) % 360 - 180
         self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f}")
         self.lbl_status.setStyleSheet("color: #2ecc71;")
-        self.target_angles_updated.emit(q1, q2, q3)
+        # Ensure we emit Python float for PyQt signal
+        self.target_angles_updated.emit(float(q1), float(q2), float(q3))
 
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
-        # We need current arm angles. We'll get them from MainWindow later via set_current_angles.
-        # For now, just compute target angles and store them for animation.
+        print("DEBUG: Animate clicked", file=sys.stderr)
         x, y, z = self.current_pos
         result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
         if result is None:
             self.lbl_status.setText("Target unreachable")
             self.lbl_status.setStyleSheet("color: #e74c3c;")
+            print("DEBUG: IK failed", file=sys.stderr)
             return
-        self.animation_target_angles = result
+        print(f"DEBUG: IK result: {result}", file=sys.stderr)
+        q1, q2, q3 = result
+        # Convert to Python float for PyQt signals
+        q1, q2, q3 = float(q1), float(q2), float(q3)
+        self.animation_target_angles = (q1, q2, q3)
         self.animating = True
         self.btn_animate.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.lbl_status.setText("Animating...")
-        # Will be handled by MainWindow updating current_angles each step
-        # We'll need MainWindow to drive animation or we can do it here. Simpler: MainWindow owns the animation timer.
-        # For now, just emit a one-shot? Actually we need smooth interpolation. We'll have MainWindow connect to target_angles_updated and handle animation.
-        # But currently the panel's target_angles_updated is emitted on _set_target_clicked. For animation, we could emit intermediate targets over time.
-        # Better: Move animation logic to MainWindow when in interactive mode. Let's have MainWindow handle animation when a new target arrives if animation is active.
-        # However, to keep panel independent, we could implement local QTimer here. But MainWindow needs to know to update its current_angles.
-        # For simplicity, let's not have separate animate button; the Set Target already moves instantly. We'll add smooth animation later. For now, just call set.
-        # But the user asked for animation. Let's implement a simple local timer that emits interpolated angles.
         self._start_animation()
 
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
+        print("DEBUG: _start_animation called", file=sys.stderr)
         # Need start angles (current arm state). We'll require MainWindow to call set_current_angles to update us.
         if not hasattr(self, 'current_angles') or self.current_angles is None:
+            print("DEBUG: no current_angles attribute or None", file=sys.stderr)
             self.lbl_status.setText("No current arm angles")
             return
 
@@ -187,12 +187,14 @@ class TrajectoryPanel(QGroupBox):
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._animation_step)
         self.animation_timer.start(16)  # ~60fps
-
+        print("DEBUG: animation timer started", file=sys.stderr)
     def _animation_step(self):
         import time
         if self._anim_start_time is None:
             self._anim_start_time = time.time()
-        elapsed = (time.time() - self._anim_start_time) * 1000
+            print("DEBUG: animation first step", file=sys.stderr)
+
+        elapsed = (time.time() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
         # Ease in-out
         t = 3*t*t - 2*t*t*t
@@ -200,13 +202,17 @@ class TrajectoryPanel(QGroupBox):
         start = self.animation_start_angles
         target = self.animation_target_angles
         current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
-        self.target_angles_updated.emit(*current)
+        # Convert to Python float to avoid PyQt type issues with numpy types
+        current_float = [float(v) for v in current]
+        print(f"DEBUG: step t={t:.3f}, emit {current_float}", file=sys.stderr)
+        self.target_angles_updated.emit(*current_float)
         if t >= 1.0:
             self.animation_timer.stop()
             self.animating = False
             self.btn_animate.setEnabled(True)
             self.btn_stop.setEnabled(False)
             self.lbl_status.setText("Complete")
+            print("DEBUG: animation complete", file=sys.stderr)
 
     def _stop_clicked(self):
         if self.animation_timer:
