@@ -1,0 +1,12 @@
+# This file lists the required Python packages for this project.
+# Install with: pip install -r requirements.txt
+
+# Core GUI and computation
+PyQt6>=6.5
+matplotlib>=3.5
+numpy>=1.20
+
+# Optional: for development/testing
+# pytest>=7.0
+# black>=23.0
+# flake8>=6.0
