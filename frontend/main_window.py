@@ -200,19 +200,21 @@ class MainWindow(QMainWindow):
         positions = compute_arm_positions(roll, pitch, yaw)
         self.arm_canvas.draw_arm(positions)
 
-    def _on_target_angles(self, roll: float, pitch: float, yaw: float):
+    def _on_target_angles(self, q1: float, q2: float, q3: float, q4: float = 0, q5: float = 0, q6: float = 0):
         """Handle target angles from trajectory panel (interactive mode)."""
-        print(f"DEBUG: MainWindow received target angles: ({roll}, {pitch}, {yaw})", file=sys.stderr)
+        print(f"DEBUG: MainWindow received target angles: ({q1}, {q2}, {q3}, {q4}, {q5}, {q6})", file=sys.stderr)
         if self.interactive_controller and self.interactive_controller.active:
-            self._apply_target_angles(roll, pitch, yaw)
+            self._apply_target_angles(q1, q2, q3, q4, q5, q6)
         else:
             print("DEBUG: interactive_controller not active, ignoring", file=sys.stderr)
 
-    def _apply_target_angles(self, roll: float, pitch: float, yaw: float):
+    def _apply_target_angles(self, q1: float, q2: float, q3: float, q4: float = 0, q5: float = 0, q6: float = 0):
         """Apply target angles to arm immediately (no animation)."""
-        print(f"DEBUG: _apply_target_angles({roll}, {pitch}, {yaw})", file=sys.stderr)
-        self.data_panel.update_values(roll, pitch, yaw)
-        positions = compute_arm_positions(roll, pitch, yaw)
+        print(f"DEBUG: _apply_target_angles({q1}, {q2}, {q3}, {q4}, {q5}, {q6})", file=sys.stderr)
+        # Update DataPanel with main angles (q1,q2,q3)
+        self.data_panel.update_values(q1, q2, q3)
+        # Compute forward kinematics with all 6 DOF
+        positions = compute_arm_positions(q1, q2, q3, q4, q5, q6)
         self.arm_canvas.draw_arm(positions)
         # Keep trajectory panel in sync
-        self.trajectory_panel.set_current_angles(roll, pitch, yaw)
+        self.trajectory_panel.set_current_angles(q1, q2, q3, q4, q5, q6)

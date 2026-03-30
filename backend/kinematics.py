@@ -24,26 +24,28 @@ class ArmConfig:
             self.joint_colors = ['#666666', '#3498db', '#e67e22', '#2ecc71', '#e74c3c', '#e74c3c']
 
 
-def compute_arm_positions(q1: float, q2: float, q3: float, config: ArmConfig = None) -> np.ndarray:
+def compute_arm_positions(q1: float, q2: float, q3: float,
+                          q4: float = 0.0, q5: float = 0.0, q6: float = 0.0,
+                          config: ArmConfig = None) -> np.ndarray:
     """
-    Forward kinematics: compute 6 joint positions from joint angles (degrees).
+    Forward kinematics for 6-DOF arm: compute joint positions from joint angles (degrees).
 
-    Joint 1 (q1): base yaw (rotation around Z)
-    Joint 2 (q2): shoulder pitch (rotation around Y)
-    Joint 3 (q3): elbow pitch (rotation around Y, relative to upper arm)
-
-    Args:
-        q1, q2, q3: joint angles in degrees.
-        config: ArmConfig with segment lengths.
+    Joints:
+        q1: base yaw (rotation about Z)
+        q2: shoulder pitch (rotation about Y)
+        q3: elbow pitch (rotation about Y)
+        q4: wrist roll (rotation about X)
+        q5: wrist pitch (rotation about Y)
+        q6: wrist yaw (rotation about Z)
 
     Returns:
-        positions: (6, 3) numpy array of (x, y, z) coordinates for:
-            0: base (ground center)
-            1: shoulder (at base_height)
+        positions: (6, 3) numpy array for:
+            0: base (0,0,0)
+            1: shoulder
             2: elbow
-            3: wrist
+            3: wrist center
             4: gripper tip
-            5: extra point (duplicate of tip for 6-point chain)
+            5: duplicate tip
     """
     if config is None:
         config = ArmConfig()
@@ -52,53 +54,74 @@ def compute_arm_positions(q1: float, q2: float, q3: float, config: ArmConfig = N
     q1r = np.radians(q1)
     q2r = np.radians(q2)
     q3r = np.radians(q3)
+    q4r = np.radians(q4)
+    q5r = np.radians(q5)
+    q6r = np.radians(q6)
 
     L1 = config.upper_arm_length
     L2 = config.lower_arm_length
     Lg = config.gripper_offset
     h0 = config.base_height
 
-    # Shoulder position
-    shoulder = np.array([0.0, 0.0, h0])
+    # Shoulder position (origin of frame 1)
+    O1 = np.array([0.0, 0.0, h0])
 
-    # Compute wrist offset from elbow
-    # Upper arm vector from shoulder to elbow:
-    # After Rz(q1) and Ry(q2), the local X axis direction in world coords is:
-    # dir_upper = [cos(q2)*cos(q1), cos(q2)*sin(q1), sin(q2)]
-    # Elbow position = shoulder + L1 * dir_upper
-    elbow_x = L1 * np.cos(q2r) * np.cos(q1r)
-    elbow_y = L1 * np.cos(q2r) * np.sin(q1r)
-    elbow_z = h0 + L1 * np.sin(q2r)
-    elbow = np.array([elbow_x, elbow_y, elbow_z])
+    # Rotation matrices (intrinsic order: yaw, pitch, pitch, then wrist roll/pitch/yaw)
+    c1, s1 = np.cos(q1r), np.sin(q1r)
+    R1 = np.array([[c1, -s1, 0],
+                   [s1, c1, 0],
+                   [0, 0, 1]])
 
-    # Lower arm direction: after additional Ry(q3) from elbow
-    # So lower arm direction is: rotate by (q2+q3) in the same scheme:
-    dir_lower_x = np.cos(q2r + q3r) * np.cos(q1r)
-    dir_lower_y = np.cos(q2r + q3r) * np.sin(q1r)
-    dir_lower_z = np.sin(q2r + q3r)
+    c2, s2 = np.cos(q2r), np.sin(q2r)
+    R2 = np.array([[c2, 0, s2],
+                   [0, 1, 0],
+                   [-s2, 0, c2]])
 
-    wrist_x = elbow_x + L2 * dir_lower_x
-    wrist_y = elbow_y + L2 * dir_lower_y
-    wrist_z = elbow_z + L2 * dir_lower_z
-    wrist = np.array([wrist_x, wrist_y, wrist_z])
+    c3, s3 = np.cos(q3r), np.sin(q3r)
+    R3 = np.array([[c3, 0, s3],
+                   [0, 1, 0],
+                   [-s3, 0, c3]])
 
-    # Gripper tip extends a bit further along same direction
-    tip_x = wrist_x + Lg * dir_lower_x
-    tip_y = wrist_y + Lg * dir_lower_y
-    tip_z = wrist_z + Lg * dir_lower_z
-    tip = np.array([tip_x, tip_y, tip_z])
+    # Combined rotation to wrist center (frame 3)
+    R03 = R1 @ R2 @ R3
+
+    # Positions: shoulder -> elbow along X axis of frame2
+    O2 = O1 + R1 @ R2 @ np.array([L1, 0, 0])
+    # Elbow -> wrist along X axis of frame3
+    O3 = O2 + R1 @ R2 @ R3 @ np.array([L2, 0, 0])  # wrist center
+
+    # Wrist rotations: roll about X, pitch about Y, yaw about Z (all intrinsic)
+    c4, s4 = np.cos(q4r), np.sin(q4r)
+    R4 = np.array([[1, 0, 0],
+                   [0, c4, -s4],
+                   [0, s4, c4]])
+    c5, s5 = np.cos(q5r), np.sin(q5r)
+    R5 = np.array([[c5, 0, s5],
+                   [0, 1, 0],
+                   [-s5, 0, c5]])
+    c6, s6 = np.cos(q6r), np.sin(q6r)
+    R6 = np.array([[c6, -s6, 0],
+                   [s6, c6, 0],
+                   [0, 0, 1]])
+    R36 = R4 @ R5 @ R6
+
+    # Full rotation from base to tool frame
+    R06 = R03 @ R36
+
+    # Tool tip: from wrist center along X axis of tool frame
+    tool_offset = R06[:, 0] * Lg
+    O4 = O3 + tool_offset
 
     base = np.array([0.0, 0.0, 0.0])
 
     positions = np.array([
         base,
-        shoulder,
-        elbow,
-        wrist,
-        tip,
-        tip  # duplicate to fill 6th point
+        O1,
+        O2,
+        O3,
+        O4,
+        O4
     ])
-
     return positions
 
 

@@ -14,7 +14,7 @@ from backend.kinematics import inverse_kinematics_3dof, ArmConfig
 class TrajectoryPanel(QGroupBox):
     """Panel for interactive Cartesian control."""
 
-    target_angles_updated = pyqtSignal(float, float, float)  # q1, q2, q3 (degrees)
+    target_angles_updated = pyqtSignal(float, float, float, float, float, float)  # q1,q2,q3,q4,q5,q6
 
     def __init__(self, parent=None):
         super().__init__("Trajectory Control (Cartesian)", parent)
@@ -35,6 +35,11 @@ class TrajectoryPanel(QGroupBox):
         self._create_position_control("X", -0.5, 0.5, 0.0, 0.01)
         self._create_position_control("Y", -0.5, 0.5, 0.0, 0.01)
         self._create_position_control("Z", 0.0, 1.0, self.config.base_height + self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset, 0.01)
+
+        # Wrist joint controls (degrees)
+        self._create_position_control("Wrist Roll", -180, 180, 0, 1)
+        self._create_position_control("Wrist Pitch", -90, 90, 0, 1)
+        self._create_position_control("Wrist Yaw", -180, 180, 0, 1)
 
         # Set Target button
         self.btn_set = QPushButton("Set Target")
@@ -94,34 +99,35 @@ class TrajectoryPanel(QGroupBox):
     def _create_position_control(self, axis, min_val, max_val, default, step):
         hbox = QHBoxLayout()
         lbl = QLabel(f"{axis}:")
-        lbl.setFixedWidth(30)
+        lbl.setFixedWidth(50)
         hbox.addWidget(lbl)
 
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(int(min_val*100), int(max_val*100))
         slider.setValue(int(default*100))
-        slider.valueChanged.connect(lambda v, a=axis: self._on_slider_changed(a, v/100.0))
-        hbox.addWidget(slider)
 
         spinbox = QDoubleSpinBox()
         spinbox.setRange(min_val, max_val)
         spinbox.setValue(default)
         spinbox.setSingleStep(step)
         spinbox.setFixedWidth(70)
-        spinbox.valueChanged.connect(lambda v, a=axis: self._on_spinbox_changed(a, v))
-        hbox.addWidget(spinbox)
 
-        setattr(self, f"slider_{axis.lower()}", slider)
-        setattr(self, f"spin_{axis.lower()}", spinbox)
+        # Sanitize axis name for attribute (e.g., "Wrist Roll" -> "wrist_roll")
+        axis_key = axis.lower().replace(' ', '_')
+        slider.valueChanged.connect(lambda v, key=axis_key: self._on_slider_changed(key, v/100.0))
+        spinbox.valueChanged.connect(lambda v, key=axis_key: self._on_spinbox_changed(key, v))
+
+        setattr(self, f"slider_{axis_key}", slider)
+        setattr(self, f"spin_{axis_key}", spinbox)
         self.layout.addLayout(hbox)
 
-    def _on_slider_changed(self, axis, value):
-        spin = getattr(self, f"spin_{axis.lower()}")
+    def _on_slider_changed(self, axis_key, value):
+        spin = getattr(self, f"spin_{axis_key}")
         spin.setValue(value)
         self._update_current_pos()
 
-    def _on_spinbox_changed(self, axis, value):
-        slider = getattr(self, f"slider_{axis.lower()}")
+    def _on_spinbox_changed(self, axis_key, value):
+        slider = getattr(self, f"slider_{axis_key}")
         slider.setValue(int(value * 100))
         self._update_current_pos()
 
@@ -145,10 +151,14 @@ class TrajectoryPanel(QGroupBox):
         q1 = (q1 + 180) % 360 - 180
         q2 = (q2 + 180) % 360 - 180
         q3 = (q3 + 180) % 360 - 180
-        self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f}")
+        # Get wrist angles from spinners
+        q4 = self.spin_wrist_roll.value()
+        q5 = self.spin_wrist_pitch.value()
+        q6 = self.spin_wrist_yaw.value()
+        self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f} | Wrist: {q4},{q5},{q6}")
         self.lbl_status.setStyleSheet("color: #2ecc71;")
-        # Ensure we emit Python float for PyQt signal
-        self.target_angles_updated.emit(float(q1), float(q2), float(q3))
+        # Emit all 6 angles as Python floats
+        self.target_angles_updated.emit(float(q1), float(q2), float(q3), float(q4), float(q5), float(q6))
 
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
@@ -164,7 +174,10 @@ class TrajectoryPanel(QGroupBox):
         q1, q2, q3 = result
         # Convert to Python float for PyQt signals
         q1, q2, q3 = float(q1), float(q2), float(q3)
-        self.animation_target_angles = (q1, q2, q3)
+        q4 = float(self.spin_wrist_roll.value())
+        q5 = float(self.spin_wrist_pitch.value())
+        q6 = float(self.spin_wrist_yaw.value())
+        self.animation_target_angles = (q1, q2, q3, q4, q5, q6)
         self.animating = True
         self.btn_animate.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -198,10 +211,14 @@ class TrajectoryPanel(QGroupBox):
         t = min(elapsed / self.anim_duration, 1.0)
         # Ease in-out
         t = 3*t*t - 2*t*t*t
-        # Interpolate each joint angle
+        # Interpolate each joint angle (6 DOF now)
         start = self.animation_start_angles
         target = self.animation_target_angles
-        current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
+        # Ensure we have at least 6 elements
+        if len(start) < 6 or len(target) < 6:
+            print(f"DEBUG: length mismatch start={len(start)} target={len(target)}", file=sys.stderr)
+            return
+        current = [start[i] + (target[i] - start[i]) * t for i in range(6)]
         # Convert to Python float to avoid PyQt type issues with numpy types
         current_float = [float(v) for v in current]
         print(f"DEBUG: step t={t:.3f}, emit {current_float}", file=sys.stderr)
@@ -222,7 +239,16 @@ class TrajectoryPanel(QGroupBox):
         self.btn_stop.setEnabled(False)
         self.lbl_status.setText("Stopped")
 
-    def set_current_angles(self, q1, q2, q3):
+    def set_current_angles(self, q1, q2, q3, q4=0, q5=0, q6=0):
         """Update current arm angles (called by MainWindow)."""
-        self.current_angles = [q1, q2, q3]
-        # If not animating and we have a target, maybe update sliders? Not necessary.
+        self.current_angles = [q1, q2, q3, q4, q5, q6]
+        # Update wrist spinners to reflect current state (block signals to avoid loops)
+        self.spin_wrist_roll.blockSignals(True)
+        self.spin_wrist_roll.setValue(q4)
+        self.spin_wrist_roll.blockSignals(False)
+        self.spin_wrist_pitch.blockSignals(True)
+        self.spin_wrist_pitch.setValue(q5)
+        self.spin_wrist_pitch.blockSignals(False)
+        self.spin_wrist_yaw.blockSignals(True)
+        self.spin_wrist_yaw.setValue(q6)
+        self.spin_wrist_yaw.blockSignals(False)
