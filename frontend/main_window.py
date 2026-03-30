@@ -108,8 +108,8 @@ class MainWindow(QMainWindow):
         self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
         self.connection_panel.mode_changed.connect(self._on_mode_changed)
 
-        # Trajectory panel emits target angles
-        self.trajectory_panel.target_updated.connect(self._on_target_angles)
+        # Trajectory panel emits target joint angles (from IK)
+        self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
 
     def _on_mode_changed(self, mode: str):
         """Show/hide trajectory panel based on mode."""
