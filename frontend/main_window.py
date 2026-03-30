@@ -12,6 +12,9 @@ from PyQt6.QtCore import Qt
 # from frontend.panels.data_panel import DataPanel
 # from frontend.panels.arm_canvas import ArmCanvas
 
+# Backend kinematics
+from backend.kinematics import compute_arm_positions
+
 
 class MainWindow(QMainWindow):
     """Main application window with two-panel layout."""
@@ -86,35 +89,55 @@ class MainWindow(QMainWindow):
         self.data_panel = DataPanel()
         self.left_layout.addWidget(self.data_panel)
 
+        # Trajectory panel (hidden by default)
+        from frontend.panels.trajectory_panel import TrajectoryPanel
+        self.trajectory_panel = TrajectoryPanel()
+        self.trajectory_panel.setVisible(False)
+        self.left_layout.addWidget(self.trajectory_panel)
+
         self.left_layout.addStretch()
 
         # Right panel: 3D canvas
         self.arm_canvas = ArmCanvas()
         self.right_layout.addWidget(self.arm_canvas)
 
-        # Setup simulation
+        # Setup connection handling
         self.simulator = None
+        self.interactive_controller = None
         self.connection_panel.connect_requested.connect(self._on_connect_requested)
         self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
+        self.connection_panel.mode_changed.connect(self._on_mode_changed)
+
+        # Trajectory panel emits target angles
+        self.trajectory_panel.target_updated.connect(self._on_target_angles)
+
+    def _on_mode_changed(self, mode: str):
+        """Show/hide trajectory panel based on mode."""
+        if mode == "interactive":
+            self.trajectory_panel.setVisible(True)
+        else:
+            self.trajectory_panel.setVisible(False)
 
     def _on_connect_requested(self, port: str, baud: int):
-        """Handle connection request from panel."""
-        if port == "SIMULATED (no hardware)":
+        """Handle connection request."""
+        if port == "INTERACTIVE":
+            self._start_interactive()
+        elif port == "SIMULATED (no hardware)":
             self._start_simulation()
         else:
-            # TODO: implement real serial connection (Step 3+)
+            # Real serial not implemented yet
             self.connection_panel.set_status(f"Real serial not implemented yet: {port}")
             self.connection_panel.set_connected(False)
 
     def _on_disconnect_requested(self):
-        """Handle disconnect request."""
-        self._stop_simulation()
+        """Handle disconnect."""
+        self._stop_current_mode()
         self.connection_panel.set_connected(False)
         self.connection_panel.set_status("Disconnected")
 
     def _start_simulation(self):
         """Start simulated data generation."""
-        from PyQt6.QtCore import QTimer, pyqtSignal, QObject
+        from PyQt6.QtCore import QTimer, QObject, pyqtSignal
         import numpy as np
 
         class Simulator(QObject):
@@ -122,17 +145,14 @@ class MainWindow(QMainWindow):
             def __init__(self, parent=None):
                 super().__init__(parent)
                 self.t = 0.0
-                self.running = False
                 self.timer = QTimer(parent)
                 self.timer.timeout.connect(self._update)
-                self.interval = 50  # ms
+                self.interval = 50
 
             def start(self):
-                self.running = True
                 self.timer.start(self.interval)
 
             def stop(self):
-                self.running = False
                 self.timer.stop()
 
             def _update(self):
@@ -143,23 +163,48 @@ class MainWindow(QMainWindow):
                 self.data_updated.emit(roll, pitch, yaw)
 
         self.simulator = Simulator(self)
-        self.simulator.data_updated.connect(self._on_simulated_data)
+        self.simulator.data_updated.connect(self._on_data_received)
         self.simulator.start()
         self.connection_panel.set_connected(True)
-        self.status_bar.showMessage("Simulation active")
+        self.status_bar.showMessage("Simulation mode active")
         self.connection_panel.set_status("Simulation running")
 
-    def _stop_simulation(self):
+    def _start_interactive(self):
+        """Start interactive mode - target angles from trajectory panel."""
+        self.interactive_controller = type('InteractiveCtrl', (), {
+            'active': True,
+            'target': [0.0, 0.0, 0.0]
+        })  # simple namespace
+        self.connection_panel.set_connected(True)
+        self.status_bar.showMessage("Interactive mode active")
+        self.connection_panel.set_status("Use sliders to set target")
+        # Set initial target to zero
+        self._apply_target_angles(0, 0, 0)
+
+    def _stop_current_mode(self):
+        """Stop whichever mode is running."""
         if self.simulator:
             self.simulator.stop()
             self.simulator = None
-        self.status_bar.showMessage("Disconnected")
+        if self.interactive_controller:
+            self.interactive_controller.active = False
+            self.interactive_controller = None
         self.arm_canvas._init_empty_plot()
 
-    def _on_simulated_data(self, roll: float, pitch: float, yaw: float):
-        """Update UI with simulated data."""
+    def _on_data_received(self, roll: float, pitch: float, yaw: float):
+        """Update UI with data (from simulation or real source)."""
         self.data_panel.update_values(roll, pitch, yaw)
-        # Compute arm positions
-        from backend.kinematics import compute_arm_positions
+        self.trajectory_panel.set_current_angles(roll, pitch, yaw)
+        positions = compute_arm_positions(roll, pitch, yaw)
+        self.arm_canvas.draw_arm(positions)
+
+    def _on_target_angles(self, roll: float, pitch: float, yaw: float):
+        """Handle target angles from trajectory panel (interactive mode)."""
+        if self.interactive_controller and self.interactive_controller.active:
+            self._apply_target_angles(roll, pitch, yaw)
+
+    def _apply_target_angles(self, roll: float, pitch: float, yaw: float):
+        """Apply target angles to arm immediately (no animation)."""
+        self.data_panel.update_values(roll, pitch, yaw)
         positions = compute_arm_positions(roll, pitch, yaw)
         self.arm_canvas.draw_arm(positions)
