@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QLabel, QPushButton, QMessageBox
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 # from frontend.panels.data_panel import DataPanel
 # from frontend.panels.arm_canvas import ArmCanvas
 
-# Backend kinematics
+# Backend kinematics (used in draw updates)
 from backend.kinematics import compute_arm_positions
 
 
@@ -96,7 +96,37 @@ class MainWindow(QMainWindow):
         self.trajectory_panel.setVisible(False)
         self.left_layout.addWidget(self.trajectory_panel)
 
+        # Waypoint panel (hidden by default)
+        from frontend.panels.waypoint_panel import WaypointPanel
+        self.waypoint_panel = WaypointPanel()
+        self.waypoint_panel.setVisible(False)
+        self.left_layout.addWidget(self.waypoint_panel)
+
+        # Trajectory playback controls
+        self.btn_play = QPushButton("Play Trajectory")
+        self.btn_play.setStyleSheet("background-color: #8e44ad; color: white; padding: 8px; margin-top: 5px;")
+        self.btn_play.clicked.connect(self._play_trajectory)
+        self.left_layout.addWidget(self.btn_play)
+        self.btn_play.setVisible(False)
+        self.btn_play.setEnabled(False)  # disabled until enough waypoints
+
+        self.btn_clear_trace = QPushButton("Clear Trace")
+        self.btn_clear_trace.setStyleSheet("background-color: #7f8c8d; color: white; padding: 8px;")
+        self.btn_clear_trace.clicked.connect(self._clear_trace)
+        self.left_layout.addWidget(self.btn_clear_trace)
+        self.btn_clear_trace.setVisible(False)
+
         self.left_layout.addStretch()
+
+        # Track current end-effector position for waypoint addition
+        self._current_ee_position = [0.0, 0.0, 0.4]  # default
+        self._current_wrist = [0.0, 0.0, 0.0]
+
+        # Set up waypoint panel to use this position source (returns (pos, wrist) tuple)
+        self.waypoint_panel.set_current_position_source(lambda: (self._current_ee_position, self._current_wrist))
+
+        # Connect waypoint changes to enable/disable play button
+        self.waypoint_panel.waypoints_changed.connect(self._update_play_button)
 
         # Right panel: 3D canvas
         self.arm_canvas = ArmCanvas()
@@ -113,11 +143,12 @@ class MainWindow(QMainWindow):
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
 
     def _on_mode_changed(self, mode: str):
-        """Show/hide trajectory panel based on mode."""
-        if mode == "interactive":
-            self.trajectory_panel.setVisible(True)
-        else:
-            self.trajectory_panel.setVisible(False)
+        """Show/hide trajectory and waypoint panels based on mode."""
+        visible = (mode == "interactive")
+        self.trajectory_panel.setVisible(visible)
+        self.waypoint_panel.setVisible(visible)
+        self.btn_play.setVisible(visible)
+        self.btn_clear_trace.setVisible(visible)
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
@@ -218,3 +249,83 @@ class MainWindow(QMainWindow):
         self.arm_canvas.draw_arm(positions)
         # Keep trajectory panel in sync
         self.trajectory_panel.set_current_angles(q1, q2, q3, q4, q5, q6)
+        # Store current end-effector position for waypoint addition
+        self._current_ee_position = positions[4].tolist()  # tip
+        self._current_wrist = [q4, q5, q6]
+
+    def _update_play_button(self):
+        """Enable Play button only if at least 2 waypoints exist."""
+        waypoints = self.waypoint_panel.get_waypoints()
+        self.btn_play.setEnabled(len(waypoints) >= 2)
+
+    def _clear_trace(self):
+        """Clear the trajectory trace from the canvas."""
+        self.arm_canvas.set_trajectory([])
+        self.status_bar.showMessage("Trace cleared")
+
+    def _play_trajectory(self):
+        """Generate and play the trajectory through waypoints."""
+        waypoints = self.waypoint_panel.get_waypoints()
+        if len(waypoints) < 2:
+            QMessageBox.warning(self, "Not enough waypoints", "Add at least 2 waypoints to play a trajectory.")
+            return
+
+        # Generate smooth trajectory
+        try:
+            from backend.trajectory import generate_trajectory, validate_trajectory
+            traj = generate_trajectory(waypoints, num_points=200, method='linear')
+        except Exception as e:
+            QMessageBox.critical(self, "Trajectory Error", f"Failed to generate: {e}")
+            return
+
+        # Validate trajectory
+        valid_mask = validate_trajectory(traj)
+        if not all(valid_mask):
+            invalid_count = sum(1 for v in valid_mask if not v)
+            resp = QMessageBox.question(self, "Collision/Unreachable Points",
+                                        f"{invalid_count} points fail IK or collision detection. Play anyway?",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if resp == QMessageBox.StandardButton.No:
+                return
+            # Filter valid points only? For simplicity, we'll still play but mark invalid points in trace.
+            # We'll keep all points but maybe color invalid ones red later. For now, just proceed.
+
+        # Extract tip positions for trace
+        trace_points = [pt['pos'] for pt in traj]
+        self.arm_canvas.set_trajectory(trace_points)
+
+        # Start playback using QTimer
+        self._trajectory_index = 0
+        self._trajectory_points = traj
+        self._trajectory_playing = True
+        from PyQt6.QtCore import QTimer
+        self._traj_timer = QTimer()
+        self._traj_timer.timeout.connect(self._trajectory_step)
+        self._trajectory_interval = 30  # ms between frames (about 33fps)
+        self._traj_timer.start(self._trajectory_interval)
+        self.btn_play.setEnabled(False)
+        self.status_bar.showMessage("Playing trajectory...")
+
+    def _trajectory_step(self):
+        """Advance one step in trajectory playback."""
+        if not hasattr(self, '_trajectory_playing') or not self._trajectory_playing:
+            return
+        if self._trajectory_index >= len(self._trajectory_points):
+            self._traj_timer.stop()
+            self._trajectory_playing = False
+            self.btn_play.setEnabled(True)
+            self.status_bar.showMessage("Trajectory complete")
+            return
+
+        pt = self._trajectory_points[self._trajectory_index]
+        pos = pt['pos']
+        wrist = pt['wrist']
+        # Solve IK for XYZ to get q1,q2,q3
+        from backend.trajectory import solve_ik_for_waypoint
+        angles = solve_ik_for_waypoint(pos, wrist)
+        if angles is not None:
+            q1, q2, q3, q4, q5, q6 = angles
+            self._apply_target_angles(q1, q2, q3, q4, q5, q6)
+        else:
+            print(f"WARNING: Trajectory point {self._trajectory_index} unreachable, skipping", file=sys.stderr)
+        self._trajectory_index += 1

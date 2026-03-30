@@ -3,6 +3,8 @@
 ArmCanvas - 3D Robotic Arm visualization with realistic meshes (cylinders, spheres).
 """
 
+from typing import List, Tuple
+
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -40,6 +42,9 @@ class ArmCanvas(FigureCanvas):
 
         # Joint positions
         self.joint_positions = np.zeros((6, 3))
+
+        # Trajectory trace (list of (x,y,z) points)
+        self.trajectory_points = []  # will be drawn as a 3D line
 
         # Initialize plot
         self._init_empty_plot()
@@ -160,12 +165,18 @@ class ArmCanvas(FigureCanvas):
 
     def draw_arm(self, positions):
         """
-        Draw the arm with realistic 3D meshes.
+        Draw the arm with realistic 3D meshes and optional trajectory trace.
         positions: (6, 3) array of (x, y, z) for: base, shoulder, elbow, wrist, tip, extra.
         """
         self.joint_positions = positions
         self.ax.cla()
         self._setup_axes()
+
+        # Draw trajectory trace if available
+        if self.trajectory_points:
+            traj_arr = np.array(self.trajectory_points)
+            self.ax.plot(traj_arr[:, 0], traj_arr[:, 1], traj_arr[:, 2],
+                         '-', linewidth=2, color='#f39c12', alpha=0.7, marker='', markersize=0)
 
         # Extract points
         base = positions[0]
@@ -177,10 +188,6 @@ class ArmCanvas(FigureCanvas):
         # Config: segment lengths from ArmConfig
         from backend.kinematics import ArmConfig
         config = ArmConfig()
-        L1 = config.upper_arm_length
-        L2 = config.lower_arm_length
-        Lg = config.gripper_offset
-        base_h = config.base_height
         # Radii (in meters)
         r_base = 0.04
         r_shoulder = 0.03
@@ -189,7 +196,7 @@ class ArmCanvas(FigureCanvas):
         r_gripper = 0.015
 
         # 1. Base cylinder (vertical)
-        base_cyl = self._create_cylinder_mesh([0,0,0], [0,0,base_h], radius=r_base)
+        base_cyl = self._create_cylinder_mesh([0,0,0], [0,0,config.base_height], radius=r_base)
         base_col = Poly3DCollection(base_cyl, facecolors=self.colors['base'], edgecolors='#333', linewidths=0.5, alpha=0.9)
         self.ax.add_collection3d(base_col)
 
@@ -201,7 +208,7 @@ class ArmCanvas(FigureCanvas):
         # 3. Lower arm cylinder (elbow to wrist)
         lower_cyl = self._create_cylinder_mesh(elbow, wrist, radius=r_elbow)
         lower_col = Poly3DCollection(lower_cyl, facecolors=self.colors['links'], edgecolors='#333', linewidths=0.5, alpha=0.9)
-        self.ax.add_collection3d(lower_col)
+        self.ax.add_collection3d(lower_cyl)
 
         # 4. Wrist to gripper tip (smaller cylinder)
         wrist_cyl = self._create_cylinder_mesh(wrist, tip, radius=r_wrist)
@@ -219,8 +226,14 @@ class ArmCanvas(FigureCanvas):
         self.ax.add_collection3d(Poly3DCollection(wrist_sphere, facecolors=self.colors['wrist'], edgecolors='#333', linewidths=0.5, alpha=0.9))
         self.ax.add_collection3d(Poly3DCollection(gripper_sphere, facecolors=self.colors['gripper'], edgecolors='#333', linewidths=0.5, alpha=0.9))
 
-        # Set axis limits based on arm extents with padding
+        # Set axis limits based on combined extents (arm + trace)
         xs, ys, zs = positions[:, 0], positions[:, 1], positions[:, 2]
+        if self.trajectory_points:
+            traj_arr = np.array(self.trajectory_points)
+            xs = np.concatenate([xs, traj_arr[:, 0]])
+            ys = np.concatenate([ys, traj_arr[:, 1]])
+            zs = np.concatenate([zs, traj_arr[:, 2]])
+
         max_range = np.array([xs.max()-xs.min(), ys.max()-ys.min(), zs.max()-zs.min()]).max() / 2.0
         if max_range < 0.1:
             max_range = 0.5
@@ -234,3 +247,10 @@ class ArmCanvas(FigureCanvas):
 
         self.fig.tight_layout()
         self.draw_idle()
+
+    def set_trajectory(self, points: List[Tuple[float, float, float]]):
+        """Set the trajectory trace points (list of (x,y,z))."""
+        self.trajectory_points = points if points else []
+        # Redraw if we have current arm positions
+        if hasattr(self, 'joint_positions') and self.joint_positions is not None and len(self.joint_positions) > 0:
+            self.draw_arm(self.joint_positions)
