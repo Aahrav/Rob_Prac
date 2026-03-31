@@ -31,15 +31,14 @@ class TrajectoryPanel(QGroupBox):
         desc.setStyleSheet("color: #aaa; font-size: 11px; padding: 5px;")
         self.layout.addWidget(desc)
 
-        # XYZ controls with sliders and spinboxes
-        self._create_position_control("X", -0.5, 0.5, 0.0, 0.01)
-        self._create_position_control("Y", -0.5, 0.5, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, 1.0, self.config.base_height + self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset, 0.01)
-
-        # Wrist joint controls (degrees)
-        self._create_position_control("Wrist Roll", -180, 180, 0, 1)
-        self._create_position_control("Wrist Pitch", -90, 90, 0, 1)
-        self._create_position_control("Wrist Yaw", -180, 180, 0, 1)
+        # Ranges based on arm reach:
+        # Max reach approx = upper_arm + lower_arm + gripper_offset = 0.6
+        # X, Y: ±0.6 (workspace wraps around base)
+        # Z: from near ground (0) to above shoulder (~0.8)
+        max_reach = config.upper_arm_length + config.lower_arm_length + config.gripper_offset
+        self._create_position_control("X", -max_reach, max_reach, max_reach, 0.01)
+        self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
+        self._create_position_control("Z", 0.0, config.base_height + max_reach, config.base_height, 0.01)
 
         # Set Target button
         self.btn_set = QPushButton("Set Target")
