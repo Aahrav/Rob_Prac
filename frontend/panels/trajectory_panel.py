@@ -150,14 +150,10 @@ class TrajectoryPanel(QGroupBox):
         q1 = (q1 + 180) % 360 - 180
         q2 = (q2 + 180) % 360 - 180
         q3 = (q3 + 180) % 360 - 180
-        # Get wrist angles from spinners
-        q4 = self.spin_wrist_roll.value()
-        q5 = self.spin_wrist_pitch.value()
-        q6 = self.spin_wrist_yaw.value()
-        self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f} | Wrist: {q4},{q5},{q6}")
+        self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f}")
         self.lbl_status.setStyleSheet("color: #2ecc71;")
-        # Emit all 6 angles as Python floats
-        self.target_angles_updated.emit(float(q1), float(q2), float(q3), float(q4), float(q5), float(q6))
+        # Emit joint angles
+        self.target_angles_updated.emit(float(q1), float(q2), float(q3))
 
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
@@ -173,10 +169,7 @@ class TrajectoryPanel(QGroupBox):
         q1, q2, q3 = result
         # Convert to Python float for PyQt signals
         q1, q2, q3 = float(q1), float(q2), float(q3)
-        q4 = float(self.spin_wrist_roll.value())
-        q5 = float(self.spin_wrist_pitch.value())
-        q6 = float(self.spin_wrist_yaw.value())
-        self.animation_target_angles = (q1, q2, q3, q4, q5, q6)
+        self.animation_target_angles = (q1, q2, q3)
         self.animating = True
         self.btn_animate.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -213,12 +206,11 @@ class TrajectoryPanel(QGroupBox):
         # Interpolate each joint angle (6 DOF now)
         start = self.animation_start_angles
         target = self.animation_target_angles
-        # Ensure we have at least 6 elements
-        if len(start) < 6 or len(target) < 6:
+        # Interpolate 3 angles
+        if len(start) < 3 or len(target) < 3:
             print(f"DEBUG: length mismatch start={len(start)} target={len(target)}", file=sys.stderr)
             return
-        current = [start[i] + (target[i] - start[i]) * t for i in range(6)]
-        # Convert to Python float to avoid PyQt type issues with numpy types
+        current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
         current_float = [float(v) for v in current]
         print(f"DEBUG: step t={t:.3f}, emit {current_float}", file=sys.stderr)
         self.target_angles_updated.emit(*current_float)
@@ -239,11 +231,6 @@ class TrajectoryPanel(QGroupBox):
         self.lbl_status.setText("Stopped")
 
     def set_current_angles(self, q1, q2, q3):
-        """Update current arm angles (called by MainWindow)."""
+        """Update current arm angles (for animation)."""
         self.current_angles = [q1, q2, q3]
-        # If not animating, update sliders to match
-        if not self.animating:
-            self.slider_roll.setValue(int(q1))
-            self.slider_pitch.setValue(int(q2))
-            self.slider_yaw.setValue(int(q3))
-            self._update_target()
+        # No need to update sliders; sliders represent desired target, not current state.
