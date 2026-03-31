@@ -58,6 +58,10 @@ class ArmCanvas(FigureCanvas):
         # Collision state
         self.colliding_segments = set()
 
+        # Trajectory trace
+        self.trajectory_points = []
+        self._traj_line = None
+
         self._init_empty_plot()
 
     def _init_empty_plot(self):
@@ -75,9 +79,9 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_zlabel('Z (m)')
 
     def _add_static_ground(self):
-        """Create a ground plane (static, added once)."""
-        # Create a large square grid on the ground (z=0)
+        """Create a ground plane with grid (static, added once)."""
         size = 2.0
+        # Ground plane
         corners = np.array([
             [-size, -size, 0],
             [ size, -size, 0],
@@ -88,6 +92,14 @@ class ArmCanvas(FigureCanvas):
         ground = Poly3DCollection([corners[face] for face in faces], facecolors='#444', edgecolors='#555', linewidths=0.5, alpha=0.3)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
+        # Grid lines
+        step = 0.5
+        # X grid lines (vary Y)
+        for x in np.arange(-size, size + step, step):
+            self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
+        # Y grid lines (vary X)
+        for y in np.arange(-size, size + step, step):
+            self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
 
     def _detect_collisions(self, positions):
         """
