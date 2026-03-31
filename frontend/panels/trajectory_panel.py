@@ -239,16 +239,12 @@ class TrajectoryPanel(QGroupBox):
         self.btn_stop.setEnabled(False)
         self.lbl_status.setText("Stopped")
 
-    def set_current_angles(self, q1, q2, q3, q4=0, q5=0, q6=0):
+    def set_current_angles(self, q1, q2, q3):
         """Update current arm angles (called by MainWindow)."""
-        self.current_angles = [q1, q2, q3, q4, q5, q6]
-        # Update wrist spinners to reflect current state (block signals to avoid loops)
-        self.spin_wrist_roll.blockSignals(True)
-        self.spin_wrist_roll.setValue(q4)
-        self.spin_wrist_roll.blockSignals(False)
-        self.spin_wrist_pitch.blockSignals(True)
-        self.spin_wrist_pitch.setValue(q5)
-        self.spin_wrist_pitch.blockSignals(False)
-        self.spin_wrist_yaw.blockSignals(True)
-        self.spin_wrist_yaw.setValue(q6)
-        self.spin_wrist_yaw.blockSignals(False)
+        self.current_angles = [q1, q2, q3]
+        # If not animating, update sliders to match
+        if not self.animating:
+            self.slider_roll.setValue(int(q1))
+            self.slider_pitch.setValue(int(q2))
+            self.slider_yaw.setValue(int(q3))
+            self._update_target()
