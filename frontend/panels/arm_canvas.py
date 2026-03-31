@@ -96,6 +96,8 @@ class ArmCanvas(FigureCanvas):
         ground = Poly3DCollection([corners[face] for face in faces], facecolors='#444', edgecolors='#555', linewidths=0.5, alpha=0.3)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
+        # Add a sample obstacle (cuboid) to demonstrate collision detection
+        self.add_obstacle([0.4, 0.0, 0.1], (0.1, 0.1, 0.1), color='#c0392b')
         # Grid lines
         step = 0.5
         # X grid lines (vary Y)
@@ -250,9 +252,25 @@ class ArmCanvas(FigureCanvas):
         xs = positions[:, 0]
         ys = positions[:, 1]
         zs = positions[:, 2]
-        xs_all = np.concatenate([xs, [-1, 1]])  # include ground extents
+        xs_all = np.concatenate([xs, [-1, 1]])  # ground extents
         ys_all = np.concatenate([ys, [-1, 1]])
         zs_all = np.concatenate([zs, [0, 2]])
+        # Include obstacles in limits
+        if self.obstacles:
+            obs_mins = []
+            obs_maxs = []
+            for obs in self.obstacles:
+                c = obs['center']
+                sx, sy, sz = obs['size']
+                half = np.array([sx/2, sy/2, sz/2])
+                obs_mins.append(c - half)
+                obs_maxs.append(c + half)
+            if obs_mins:
+                obs_mins = np.array(obs_mins)
+                obs_maxs = np.array(obs_maxs)
+                xs_all = np.concatenate([xs_all, obs_mins[:,0], obs_maxs[:,0]])
+                ys_all = np.concatenate([ys_all, obs_mins[:,1], obs_maxs[:,1]])
+                zs_all = np.concatenate([zs_all, obs_mins[:,2], obs_maxs[:,2]])
 
         max_range = np.array([xs_all.max()-xs_all.min(), ys_all.max()-ys_all.min(), zs_all.max()-zs_all.min()]).max() / 2.0
         if max_range < 0.1:
