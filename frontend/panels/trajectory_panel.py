@@ -119,6 +119,10 @@ class TrajectoryPanel(QGroupBox):
         spinbox.setSingleStep(step)
         spinbox.setFixedWidth(70)
 
+        # Add widgets to hbox
+        hbox.addWidget(slider)
+        hbox.addWidget(spinbox)
+
         # Sanitize axis name for attribute (e.g., "Wrist Roll" -> "wrist_roll")
         axis_key = axis.lower().replace(' ', '_')
         slider.valueChanged.connect(lambda v, key=axis_key: self._on_slider_changed(key, v/100.0))
