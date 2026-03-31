@@ -102,11 +102,7 @@ class MainWindow(QMainWindow):
         self.trajectory_panel.setVisible(False)
         self.left_layout.addWidget(self.trajectory_panel)
 
-        # Waypoint panel (hidden by default)
-        from frontend.panels.waypoint_panel import WaypointPanel
-        self.waypoint_panel = WaypointPanel()
-        self.waypoint_panel.setVisible(False)
-        self.left_layout.addWidget(self.waypoint_panel)
+        # Waypoint panel not implemented for 3-DOF; do not add
 
         # Trajectory playback controls
         self.btn_play = QPushButton("Play Trajectory")
@@ -124,16 +120,6 @@ class MainWindow(QMainWindow):
 
         self.left_layout.addStretch()
 
-        # Track current end-effector position for waypoint addition
-        self._current_ee_position = [0.0, 0.0, 0.4]  # default
-        self._current_wrist = [0.0, 0.0, 0.0]
-
-        # Set up waypoint panel to use this position source (returns (pos, wrist) tuple)
-        self.waypoint_panel.set_current_position_source(lambda: (self._current_ee_position, self._current_wrist))
-
-        # Connect waypoint changes to enable/disable play button
-        self.waypoint_panel.waypoints_changed.connect(self._update_play_button)
-
         # Right panel: 3D canvas
         self.arm_canvas = ArmCanvas()
         self.right_layout.addWidget(self.arm_canvas)
@@ -149,12 +135,12 @@ class MainWindow(QMainWindow):
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
 
     def _on_mode_changed(self, mode: str):
-        """Show/hide trajectory and waypoint panels based on mode."""
+        """Show/hide panels based on mode."""
         visible = (mode == "interactive")
         self.trajectory_panel.setVisible(visible)
-        self.waypoint_panel.setVisible(visible)
-        self.btn_play.setVisible(visible)
-        self.btn_clear_trace.setVisible(visible)
+        # Waypoint panel and trajectory playback not implemented for 3-DOF yet
+        self.btn_play.setVisible(False)
+        self.btn_clear_trace.setVisible(False)
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
