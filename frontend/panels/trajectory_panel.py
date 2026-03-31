@@ -14,7 +14,7 @@ from backend.kinematics import inverse_kinematics_3dof, ArmConfig
 class TrajectoryPanel(QGroupBox):
     """Panel for interactive Cartesian control."""
 
-    target_angles_updated = pyqtSignal(float, float, float, float, float, float)  # q1,q2,q3,q4,q5,q6
+    target_angles_updated = pyqtSignal(float, float, float)  # q1, q2, q3
 
     def __init__(self, parent=None):
         super().__init__("Trajectory Control (Cartesian)", parent)
