@@ -40,10 +40,13 @@ class TrajectoryPanel(QGroupBox):
         self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
         self._create_position_control("Z", 0.0, self.config.base_height + max_reach, self.config.base_height, 0.01)
 
+        # Spacer
+        self.layout.addSpacing(10)
+
         # Set Target button
         self.btn_set = QPushButton("Set Target")
         self.btn_set.setStyleSheet("""
-            QPushButton { background-color: #3498db; color: white; font-weight: bold; padding: 10px; }
+            QPushButton { background-color: #3498db; color: white; font-weight: bold; padding: 12px; min-height: 30px; }
             QPushButton:hover { background-color: #2980b9; }
         """)
         self.btn_set.clicked.connect(self._set_target_clicked)
@@ -52,7 +55,7 @@ class TrajectoryPanel(QGroupBox):
         # Animate to Target button
         self.btn_animate = QPushButton("Animate to Target")
         self.btn_animate.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: white; font-weight: bold; padding: 10px; }
+            QPushButton { background-color: #27ae60; color: white; font-weight: bold; padding: 12px; min-height: 30px; }
             QPushButton:hover { background-color: #2ecc71; }
         """)
         self.btn_animate.clicked.connect(self._animate_clicked)
@@ -61,18 +64,23 @@ class TrajectoryPanel(QGroupBox):
         # Stop button
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setStyleSheet("""
-            QPushButton { background-color: #c0392b; color: white; padding: 10px; }
+            QPushButton { background-color: #c0392b; color: white; padding: 12px; min-height: 30px; }
             QPushButton:hover { background-color: #e74c3c; }
         """)
         self.btn_stop.clicked.connect(self._stop_clicked)
         self.btn_stop.setEnabled(False)
         self.layout.addWidget(self.btn_stop)
 
+        self.layout.addSpacing(10)
+
         # Status
         self.lbl_status = QLabel("Ready")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("color: #ddd; padding: 5px;")
+        self.lbl_status.setStyleSheet("color: #ddd; padding: 5px; font-size: 11px;")
         self.layout.addWidget(self.lbl_status)
+
+        # Stretch to fill remaining space
+        self.layout.addStretch()
 
         self.setStyleSheet("""
             QGroupBox {
@@ -172,6 +180,7 @@ class TrajectoryPanel(QGroupBox):
         self.animation_target_angles = (q1, q2, q3)
         self.animating = True
         self.btn_animate.setEnabled(False)
+        self.btn_set.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.lbl_status.setText("Animating...")
         self._start_animation()
@@ -179,11 +188,10 @@ class TrajectoryPanel(QGroupBox):
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
         print("DEBUG: _start_animation called", file=sys.stderr)
-        # Need start angles (current arm state). We'll require MainWindow to call set_current_angles to update us.
-        if not hasattr(self, 'current_angles') or self.current_angles is None:
-            print("DEBUG: no current_angles attribute or None", file=sys.stderr)
-            self.lbl_status.setText("No current arm angles")
-            return
+        # Ensure we have current angles; if not, use zeros as fallback
+        if not hasattr(self, 'current_angles') or self.current_angles is None or len(self.current_angles) < 3:
+            print("DEBUG: no current_angles, defaulting to zeros", file=sys.stderr)
+            self.current_angles = [0.0, 0.0, 0.0]
 
         self.animation_start_angles = self.current_angles[:]
         self.anim_duration = 2000  # ms
@@ -191,15 +199,15 @@ class TrajectoryPanel(QGroupBox):
         from PyQt6.QtCore import QTimer
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._animation_step)
-        self.animation_timer.start(16)  # ~60fps
+        self.animation_timer.start(33)  # ~30fps for smoother performance with Matplotlib redraws
         print("DEBUG: animation timer started", file=sys.stderr)
     def _animation_step(self):
         import time
         if self._anim_start_time is None:
-            self._anim_start_time = time.time()
+            self._anim_start_time = time.perf_counter()
             print("DEBUG: animation first step", file=sys.stderr)
 
-        elapsed = (time.time() - self._anim_start_time) * 1000  # ms
+        elapsed = (time.perf_counter() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
         # Ease in-out
         t = 3*t*t - 2*t*t*t
@@ -218,6 +226,7 @@ class TrajectoryPanel(QGroupBox):
             self.animation_timer.stop()
             self.animating = False
             self.btn_animate.setEnabled(True)
+            self.btn_set.setEnabled(True)
             self.btn_stop.setEnabled(False)
             self.lbl_status.setText("Complete")
             print("DEBUG: animation complete", file=sys.stderr)
@@ -227,6 +236,7 @@ class TrajectoryPanel(QGroupBox):
             self.animation_timer.stop()
         self.animating = False
         self.btn_animate.setEnabled(True)
+        self.btn_set.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.lbl_status.setText("Stopped")
 
