@@ -75,16 +75,17 @@ class ArmCanvas(FigureCanvas):
         self.draw()
 
     def _setup_axes(self):
-        self.ax.set_xlim([-1, 1])
-        self.ax.set_ylim([-1, 1])
-        self.ax.set_zlim([0, 2])
+        # Set initial view focused on workspace (arm reach ~0.6-0.8m)
+        self.ax.set_xlim([-0.8, 0.8])
+        self.ax.set_ylim([-0.8, 0.8])
+        self.ax.set_zlim([0, 0.9])
         self.ax.set_xlabel('X (m)')
         self.ax.set_ylabel('Y (m)')
         self.ax.set_zlabel('Z (m)')
 
     def _add_static_ground(self):
         """Create a ground plane with grid (static, added once)."""
-        size = 2.0
+        size = 1.0  # 1m x 1m ground centered at origin
         # Ground plane
         corners = np.array([
             [-size, -size, 0],
@@ -96,10 +97,8 @@ class ArmCanvas(FigureCanvas):
         ground = Poly3DCollection([corners[face] for face in faces], facecolors='#444', edgecolors='#555', linewidths=0.5, alpha=0.3)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
-        # Add a sample obstacle (cuboid) to demonstrate collision detection
-        self.add_obstacle([0.4, 0.0, 0.1], (0.1, 0.1, 0.1), color='#c0392b')
-        # Grid lines
-        step = 0.5
+        # Grid lines every 0.25m
+        step = 0.25
         # X grid lines (vary Y)
         for x in np.arange(-size, size + step, step):
             self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
@@ -252,9 +251,16 @@ class ArmCanvas(FigureCanvas):
         xs = positions[:, 0]
         ys = positions[:, 1]
         zs = positions[:, 2]
-        xs_all = np.concatenate([xs, [-1, 1]])  # ground extents
-        ys_all = np.concatenate([ys, [-1, 1]])
-        zs_all = np.concatenate([zs, [0, 2]])
+        # Include ground plane corners (1m x 1m)
+        ground_corners = np.array([
+            [-0.5, -0.5, 0],
+            [ 0.5, -0.5, 0],
+            [ 0.5,  0.5, 0],
+            [-0.5,  0.5, 0],
+        ])
+        xs = np.concatenate([xs, ground_corners[:,0]])
+        ys = np.concatenate([ys, ground_corners[:,1]])
+        zs = np.concatenate([zs, ground_corners[:,2]])
         # Include obstacles in limits
         if self.obstacles:
             obs_mins = []
@@ -268,20 +274,30 @@ class ArmCanvas(FigureCanvas):
             if obs_mins:
                 obs_mins = np.array(obs_mins)
                 obs_maxs = np.array(obs_maxs)
-                xs_all = np.concatenate([xs_all, obs_mins[:,0], obs_maxs[:,0]])
-                ys_all = np.concatenate([ys_all, obs_mins[:,1], obs_maxs[:,1]])
-                zs_all = np.concatenate([zs_all, obs_mins[:,2], obs_maxs[:,2]])
+                xs = np.concatenate([xs, obs_mins[:,0], obs_maxs[:,0]])
+                ys = np.concatenate([ys, obs_mins[:,1], obs_maxs[:,1]])
+                zs = np.concatenate([zs, obs_mins[:,2], obs_maxs[:,2]])
 
-        max_range = np.array([xs_all.max()-xs_all.min(), ys_all.max()-ys_all.min(), zs_all.max()-zs_all.min()]).max() / 2.0
-        if max_range < 0.1:
-            max_range = 0.5
-        mid_x = (xs_all.max()+xs_all.min()) * 0.5
-        mid_y = (ys_all.max()+ys_all.min()) * 0.5
-        mid_z = (zs_all.max()+zs_all.min()) * 0.5
-        range_pad = max_range * 1.3
-        self.ax.set_xlim(mid_x - range_pad, mid_x + range_pad)
-        self.ax.set_ylim(mid_y - range_pad, mid_y + range_pad)
-        self.ax.set_zlim(max(0, mid_z - range_pad), mid_z + range_pad)
+        # Use actual data extents, no artificial padding
+        x_min, x_max = xs.min(), xs.max()
+        y_min, y_max = ys.min(), ys.max()
+        z_min, z_max = zs.min(), zs.max()
+
+        # Add small margin (10%)
+        x_center = (x_max + x_min) / 2
+        y_center = (y_max + y_min) / 2
+        z_center = (z_max + z_min) / 2
+        x_range = max((x_max - x_min) * 1.2, 0.2)  # avoid zero range
+        y_range = max((y_max - y_min) * 1.2, 0.2)
+        z_range = max((z_max - z_min) * 1.2, 0.2)
+
+        # Ensure ground visible to 0
+        if z_min > 0:
+            z_min = 0
+
+        self.ax.set_xlim(x_center - x_range/2, x_center + x_range/2)
+        self.ax.set_ylim(y_center - y_range/2, y_center + y_range/2)
+        self.ax.set_zlim(z_min, z_center + z_range/2)
 
     def set_trajectory(self, points):
         """Set trajectory trace (simple line)."""
