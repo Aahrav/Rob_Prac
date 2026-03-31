@@ -35,10 +35,10 @@ class TrajectoryPanel(QGroupBox):
         # Max reach approx = upper_arm + lower_arm + gripper_offset = 0.6
         # X, Y: ±0.6 (workspace wraps around base)
         # Z: from near ground (0) to above shoulder (~0.8)
-        max_reach = config.upper_arm_length + config.lower_arm_length + config.gripper_offset
+        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
         self._create_position_control("X", -max_reach, max_reach, max_reach, 0.01)
         self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, config.base_height + max_reach, config.base_height, 0.01)
+        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, self.config.base_height, 0.01)
 
         # Set Target button
         self.btn_set = QPushButton("Set Target")
