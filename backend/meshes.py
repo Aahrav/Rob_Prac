@@ -8,7 +8,7 @@ import numpy as np
 from typing import Tuple, List
 
 
-def cylinder_mesh(start: np.ndarray, end: np.ndarray, radius: float, resolution: int = 20) -> Tuple[np.ndarray, List[List[int]]]:
+def cylinder_mesh(start: np.ndarray, end: np.ndarray, radius: float, resolution: int = 12) -> Tuple[np.ndarray, List[List[int]]]:
     """
     Generate vertices and faces for a cylinder between two 3D points.
 
@@ -65,7 +65,7 @@ def cylinder_mesh(start: np.ndarray, end: np.ndarray, radius: float, resolution:
     return vertices, faces
 
 
-def sphere_mesh(center: np.ndarray, radius: float, resolution: int = 10) -> Tuple[np.ndarray, List[List[int]]]:
+def sphere_mesh(center: np.ndarray, radius: float, resolution: int = 8) -> Tuple[np.ndarray, List[List[int]]]:
     """
     Generate vertices and faces for a sphere.
     Uses latitude-longitude grid.
