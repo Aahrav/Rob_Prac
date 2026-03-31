@@ -169,15 +169,15 @@ class TrajectoryPanel(QGroupBox):
 
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
-        print("DEBUG: Animate clicked", file=sys.stderr)
+
         x, y, z = self.current_pos
         result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
         if result is None:
             self.lbl_status.setText("Target unreachable")
             self.lbl_status.setStyleSheet("color: #e74c3c;")
-            print("DEBUG: IK failed", file=sys.stderr)
+
             return
-        print(f"DEBUG: IK result: {result}", file=sys.stderr)
+
         q1, q2, q3 = result
         # Convert to Python float for PyQt signals
         q1, q2, q3 = float(q1), float(q2), float(q3)
@@ -191,10 +191,10 @@ class TrajectoryPanel(QGroupBox):
 
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
-        print("DEBUG: _start_animation called", file=sys.stderr)
+
         # Ensure we have current angles; if not, use zeros as fallback
         if not hasattr(self, 'current_angles') or self.current_angles is None or len(self.current_angles) < 3:
-            print("DEBUG: no current_angles, defaulting to zeros", file=sys.stderr)
+
             self.current_angles = [0.0, 0.0, 0.0]
 
         self.animation_start_angles = self.current_angles[:]
@@ -204,12 +204,12 @@ class TrajectoryPanel(QGroupBox):
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._animation_step)
         self.animation_timer.start(33)  # ~30fps for smoother performance with Matplotlib redraws
-        print("DEBUG: animation timer started", file=sys.stderr)
+
     def _animation_step(self):
         import time
         if self._anim_start_time is None:
             self._anim_start_time = time.perf_counter()
-            print("DEBUG: animation first step", file=sys.stderr)
+
 
         elapsed = (time.perf_counter() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
@@ -220,11 +220,11 @@ class TrajectoryPanel(QGroupBox):
         target = self.animation_target_angles
         # Interpolate 3 angles
         if len(start) < 3 or len(target) < 3:
-            print(f"DEBUG: length mismatch start={len(start)} target={len(target)}", file=sys.stderr)
+
             return
         current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
         current_float = [float(v) for v in current]
-        print(f"DEBUG: step t={t:.3f}, emit {current_float}", file=sys.stderr)
+
         self.target_angles_updated.emit(*current_float)
         if t >= 1.0:
             self.animation_timer.stop()
@@ -233,7 +233,7 @@ class TrajectoryPanel(QGroupBox):
             self.btn_set.setEnabled(True)
             self.btn_stop.setEnabled(False)
             self.lbl_status.setText("Complete")
-            print("DEBUG: animation complete", file=sys.stderr)
+
 
     def _stop_clicked(self):
         if self.animation_timer:

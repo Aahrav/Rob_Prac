@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
 
     def _start_interactive(self):
         """Start interactive mode - target angles from trajectory panel."""
-        print("DEBUG: Starting interactive mode", file=sys.stderr)
+
         self.interactive_controller = type('InteractiveCtrl', (), {
             'active': True,
             'target': [0.0, 0.0, 0.0]
