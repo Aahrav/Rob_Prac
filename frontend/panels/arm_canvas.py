@@ -62,6 +62,10 @@ class ArmCanvas(FigureCanvas):
         self.trajectory_points = []
         self._traj_line = None
 
+        # Obstacles (list of dicts with 'center', 'size', and mesh collection)
+        self.obstacles = []
+        self.obstacle_meshes = []
+
         self._init_empty_plot()
 
     def _init_empty_plot(self):
@@ -104,35 +108,47 @@ class ArmCanvas(FigureCanvas):
     def _detect_collisions(self, positions):
         """
         Detect collisions.
-        Returns a set of colliding segment names: 'base', 'upper', 'lower', 'gripper', 'joints'
+        Returns a set of colliding segment names: 'base', 'upper', 'lower', 'gripper', 'shoulder', 'elbow', 'wrist', 'tip'
         """
         collisions = set()
-        # positions indices: 0=base (should be at height), 1=shoulder, 2=elbow, 3=wrist, 4=tip
         base_z = self.config.base_height
-        # Ground collision: if any point (except base origin) goes near or below ground
-        for i, name in [(1, 'shoulder'), (2, 'elbow'), (3, 'wrist'), (4, 'tip')]:
-            if positions[i, 2] <= 0.05:  # 5cm above ground
+        point_names = ['shoulder', 'elbow', 'wrist', 'tip']
+        # Map positions: positions = [base_pt, shoulder, elbow, wrist, tip] (length 5)
+        # Ground collision
+        for i, name in enumerate(point_names, start=1):
+            if positions[i, 2] <= 0.05:
                 collisions.add(name)
-        # Segment collisions: if a segment intersects the ground or base volume
-        # Simple: if both endpoints of a segment are near ground, mark the segment
-        def endpoint_collision(p):
+        # Segment collisions (based on endpoints)
+        def endpoint_near_ground(p):
             return p[2] <= 0.05
-        # Upper arm: shoulder->elbow
-        if endpoint_collision(positions[1]) or endpoint_collision(positions[2]):
+        # Upper arm (shoulder->elbow)
+        if endpoint_near_ground(positions[1]) or endpoint_near_ground(positions[2]):
             collisions.add('upper')
-        # Lower arm: elbow->wrist
-        if endpoint_collision(positions[2]) or endpoint_collision(positions[3]):
+        # Lower arm (elbow->wrist)
+        if endpoint_near_ground(positions[2]) or endpoint_near_ground(positions[3]):
             collisions.add('lower')
-        # Gripper: wrist->tip
-        if endpoint_collision(positions[3]) or endpoint_collision(positions[4]):
+        # Gripper (wrist->tip)
+        if endpoint_near_ground(positions[3]) or endpoint_near_ground(positions[4]):
             collisions.add('gripper')
-        # Base collision: if elbow or lower arm goes into the base cuboid volume (x,y within 0.15/2, z < base_height)
+        # Base intrusion (elbow or wrist entering base volume)
         base_half = 0.075
-        for i in [2, 3]:  # elbow, wrist
+        for i in [2, 3]:
             p = positions[i]
             if abs(p[0]) <= base_half and abs(p[1]) <= base_half and p[2] < base_z + 0.05:
                 collisions.add('base')
                 break
+        # Obstacle collisions: if any joint point lies inside an obstacle cuboid
+        for obs in self.obstacles:
+            c = obs['center']
+            sx, sy, sz = obs['size']
+            min_bounds = c - np.array([sx/2, sy/2, sz/2])
+            max_bounds = c + np.array([sx/2, sy/2, sz/2])
+            for i, name in enumerate(point_names, start=1):
+                p = positions[i]
+                if (min_bounds[0] <= p[0] <= max_bounds[0] and
+                    min_bounds[1] <= p[1] <= max_bounds[1] and
+                    min_bounds[2] <= p[2] <= max_bounds[2]):
+                    collisions.add(name)
         self.colliding_segments = collisions
         return collisions
 
@@ -261,4 +277,14 @@ class ArmCanvas(FigureCanvas):
             self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], 'r-', linewidth=1, alpha=0.7)[0]
         else:
             self._traj_line = None
+        self.draw_idle()
+
+    def add_obstacle(self, center, size, color='#c0392b'):
+        """Add a static cuboid obstacle to the scene."""
+        center_arr = np.array(center)
+        verts, faces = cuboid_mesh(center_arr, size)
+        coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#333', linewidths=0.5, alpha=0.7)
+        self.ax.add_collection3d(coll)
+        self.obstacles.append({'center': center_arr, 'size': size})
+        self.obstacle_meshes.append(coll)
         self.draw_idle()
