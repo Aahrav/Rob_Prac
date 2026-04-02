@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QScrollArea
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QScrollArea, QButtonGroup, QRadioButton, QGroupBox
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -14,10 +14,11 @@ from PyQt6.QtCore import Qt
 # from frontend.panels.arm_canvas import ArmCanvas
 
 # Backend kinematics (used in draw updates)
-from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof
+from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof, KinematicChain
 
 # Panels
 from frontend.panels.robot_config_panel import RobotConfigPanel
+from frontend.panels.kinematic_chain_panel import KinematicChainPanel
 
 
 class MainWindow(QMainWindow):
@@ -94,6 +95,30 @@ class MainWindow(QMainWindow):
 
         # Shared kinematics configuration (mutable)
         self.kinematics_config = ArmConfig()
+        self.current_angles = [0.0, 0.0, 0.0]  # for standard mode FK
+        self.mode = 'standard'  # 'standard' (3-DOF) or 'custom' (DH chain)
+
+        # Control Mode selector (Standard 3-DOF vs Custom DH)
+        mode_group = QGroupBox("Control Mode")
+        mode_group.setStyleSheet("QGroupBox { border: 1px solid #555; margin-top: 8px; padding-top: 12px; }")
+        mode_layout = QHBoxLayout(mode_group)
+        self.mode_group = QButtonGroup(self)
+        self.radio_standard = QRadioButton("Standard 3-DOF")
+        self.radio_custom = QRadioButton("Custom DH")
+        self.mode_group.addButton(self.radio_standard)
+        self.mode_group.addButton(self.radio_custom)
+        self.radio_standard.setChecked(True)  # default
+        self.radio_standard.toggled.connect(self._on_mode_toggled)
+        mode_layout.addWidget(self.radio_standard)
+        mode_layout.addWidget(self.radio_custom)
+        mode_layout.addStretch()
+        self.left_layout.addWidget(mode_group)
+
+        # Kinematic chain panel (for custom DH) - start hidden
+        self.chain_panel = KinematicChainPanel()
+        self.chain_panel.setVisible(False)
+        self.chain_panel.chain_updated.connect(self._on_chain_updated)
+        self.left_layout.addWidget(self.chain_panel)
 
         # Setup UI panels (lazy imports to avoid circular dependencies)
         self._setup_panels()
@@ -189,6 +214,7 @@ class MainWindow(QMainWindow):
 
         # 3D canvas
         self.arm_canvas = ArmCanvas()
+        self.arm_canvas.config = self.kinematics_config  # share mutable config
         self.arm_canvas.setMinimumSize(600, 500)
         self.right_layout.addWidget(self.arm_canvas, stretch=3)
 
@@ -206,12 +232,9 @@ class MainWindow(QMainWindow):
         self._on_robot_config_changed(self.kinematics_config)
 
     def _on_mode_changed(self, mode: str):
-        """Show/hide panels based on mode."""
-        visible = (mode == "interactive")
-        self.trajectory_panel.setVisible(visible)
-        # Waypoint panel and trajectory playback not implemented for 3-DOF yet
-        self.btn_play.setVisible(False)
-        self.btn_clear_trace.setVisible(False)
+        """Show/hide panels based on connection mode."""
+        # Let _update_panel_visibility handle all visibility based on current mode + connection mode
+        self._update_panel_visibility()
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
@@ -291,7 +314,9 @@ class MainWindow(QMainWindow):
         """Update UI with data (from simulation or real source)."""
         self.data_panel.update_values(roll, pitch, yaw)
         self.trajectory_panel.set_current_angles(roll, pitch, yaw)
-        positions = compute_arm_positions(roll, pitch, yaw)
+        # Store current angles for standard mode
+        self.current_angles = [roll, pitch, yaw]
+        positions = compute_arm_positions(roll, pitch, yaw, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
 
     def _on_target_angles(self, q1: float, q2: float, q3: float):
@@ -303,8 +328,10 @@ class MainWindow(QMainWindow):
         """Apply target joint angles to arm (3-DOF)."""
         # Update DataPanel
         self.data_panel.update_values(q1, q2, q3)
+        # Store current angles for standard mode redraw
+        self.current_angles = [q1, q2, q3]
         # Compute forward kinematics
-        positions = compute_arm_positions(q1, q2, q3)
+        positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
         # Keep trajectory panel in sync
         self.trajectory_panel.set_current_angles(q1, q2, q3)
@@ -348,6 +375,57 @@ class MainWindow(QMainWindow):
             self._apply_target_angles(q1, q2, q3)
         else:
             self.status_bar.showMessage("Current target unreachable with new dimensions", 3000)
+
+    def _on_mode_toggled(self, checked):
+        """Handle switching between Standard 3-DOF and Custom DH modes."""
+        if not checked:
+            return
+        if self.radio_standard.isChecked():
+            self.mode = 'standard'
+        else:
+            self.mode = 'custom'
+        self._update_panel_visibility()
+        self._refresh_arm_display()
+
+    def _update_panel_visibility(self):
+        """Update visibility of panels based on mode and connection settings."""
+        if self.mode == 'standard':
+            self.robot_config_panel.setVisible(True)
+            self.data_panel.setVisible(True)
+            self.chain_panel.setVisible(False)
+            # Trajectory panel only visible in interactive mode
+            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
+            self.trajectory_panel.setVisible(is_interactive)
+        else:  # custom
+            self.robot_config_panel.setVisible(False)
+            self.data_panel.setVisible(False)
+            self.trajectory_panel.setVisible(False)
+            self.chain_panel.setVisible(True)
+
+    def _on_chain_updated(self, chain):
+        """Handle updates to the kinematic chain."""
+        if self.mode == 'custom':
+            self._refresh_arm_display()
+
+    def _refresh_arm_display(self):
+        """Redraw arm according to current mode."""
+        if self.mode == 'standard':
+            q1, q2, q3 = self.current_angles
+            positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
+            self.arm_canvas.draw_arm(positions)
+        else:
+            # custom DH mode: compute positions from chain
+            angles = []
+            for j in self.chain_panel.chain.joints:
+                if j.type == 'revolute':
+                    angles.append(j.theta)
+                elif j.type == 'prismatic':
+                    angles.append(j.d)
+                else:
+                    angles.append(0.0)
+            positions = self.chain_panel.chain.joint_positions(angles)
+            # Pass base height from the chain's base_height
+            self.arm_canvas.draw_chain(positions, base_height=self.chain_panel.chain.base_height)
 
     def _toggle_ground(self, checked):
         """Toggle ground and workspace grid visibility."""

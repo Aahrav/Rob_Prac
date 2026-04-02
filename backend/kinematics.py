@@ -221,3 +221,167 @@ def inverse_kinematics_3dof(x: float, y: float, z: float, config: ArmConfig = No
     # For simplicity, return as is.
 
     return q1, q2, q3
+
+
+# ============================================
+# Denavit-Hartenberg (DH) Parameter Kinematics
+# ============================================
+
+class DHJoint:
+    """Represents a single joint using Denavit-Hartenberg parameters."""
+    def __init__(self, joint_type: str, theta: float, d: float, a: float, alpha: float, 
+                 name: str = "", q_min: float = None, q_max: float = None):
+        """
+        Args:
+            joint_type: 'revolute' or 'prismatic' or 'fixed'
+            theta: joint angle (degrees) for revolute, or fixed value if prismatic
+            d: link offset (meters) along z-axis; for prismatic this is the variable displacement
+            a: link length (meters) along x-axis
+            alpha: twist angle (degrees) about x-axis
+            name: optional joint name for UI
+            q_min, q_max: optional joint limits (degrees for revolute, meters for prismatic)
+        """
+        self.type = joint_type  # 'revolute', 'prismatic', 'fixed'
+        self.theta = float(theta)  # degrees
+        self.d = float(d)          # meters
+        self.a = float(a)          # meters
+        self.alpha = float(alpha)  # degrees
+        self.name = name or f"Joint {id(self) % 1000}"
+        self.q_min = q_min
+        self.q_max = q_max
+
+    def to_dict(self):
+        return {
+            'type': self.type,
+            'theta': self.theta,
+            'd': self.d,
+            'a': self.a,
+            'alpha': self.alpha,
+            'name': self.name,
+            'q_min': self.q_min,
+            'q_max': self.q_max,
+        }
+
+    @staticmethod
+    def from_dict(data: dict):
+        return DHJoint(**data)
+
+    def __repr__(self):
+        return f"DHJoint({self.type}, θ={self.theta}°, d={self.d}m, a={self.a}m, α={self.alpha}°)"
+
+
+class KinematicChain:
+    """A chain of DH joints representing a robotic manipulator."""
+    def __init__(self, joints: List[DHJoint] = None, base_height: float = 0.0):
+        self.joints = joints or []
+        self.base_height = base_height  # base origin offset in Z
+
+    def add_joint(self, joint: DHJoint):
+        self.joints.append(joint)
+
+    def remove_joint(self, index: int):
+        if 0 <= index < len(self.joints):
+            del self.joints[index]
+
+    def move_joint(self, from_idx: int, to_idx: int):
+        """Reorder joint: move joint at from_idx to position to_idx."""
+        if 0 <= from_idx < len(self.joints) and 0 <= to_idx < len(self.joints):
+            joint = self.joints.pop(from_idx)
+            self.joints.insert(to_idx, joint)
+
+    def get_joint(self, index: int) -> DHJoint:
+        return self.joints[index]
+
+    def update_joint(self, index: int, **kwargs):
+        joint = self.joints[index]
+        for k, v in kwargs.items():
+            if hasattr(joint, k):
+                setattr(joint, k, float(v) if k in ['theta', 'd', 'a', 'alpha'] else v)
+
+    def forward_kinematics(self, joint_angles: List[float] = None) -> List[np.ndarray]:
+        """
+        Compute positions of all joint frames (including end-effector) using DH parameters.
+        Returns list of 4x4 homogeneous transformation matrices for each joint frame.
+        The base frame (0) is at (0,0,base_height) with identity orientation.
+        """
+        import numpy.linalg as LA
+
+        T_base = np.eye(4)
+        T_base[2, 3] = self.base_height  # base origin at (0,0,base_height)
+        transforms = [T_base]
+
+        for i, joint in enumerate(self.joints):
+            # Get variable for this joint
+            if joint.type == 'revolute':
+                theta = np.radians(joint_angles[i] if joint_angles else joint.theta)
+                d = joint.d
+            elif joint.type == 'prismatic':
+                theta = np.radians(joint.theta)
+                d = joint.d + (joint_angles[i] if joint_angles else 0.0)
+            else:  # fixed
+                theta = np.radians(joint.theta)
+                d = joint.d
+
+            a = joint.a
+            alpha = np.radians(joint.alpha)
+
+            # DH transformation matrix (standard DH)
+            cth, sth = np.cos(theta), np.sin(theta)
+            cal, sal = np.cos(alpha), np.sin(alpha)
+            T = np.array([
+                [cth, -sth * cal,  sth * sal, a * cth],
+                [sth,  cth * cal, -cth * sal, a * sth],
+                [0,    sal,        cal,       d],
+                [0,    0,          0,         1]
+            ])
+            T_new = transforms[-1] @ T
+            transforms.append(T_new)
+
+        return transforms
+
+    def joint_positions(self, joint_angles: List[float] = None) -> np.ndarray:
+        """
+        Compute 3D positions (x,y,z) of each joint origin from the transforms.
+        Returns an (N+1, 3) array where N = number of joints.
+        """
+        transforms = self.forward_kinematics(joint_angles)
+        positions = np.array([T[:3, 3] for T in transforms])
+        return positions
+
+    def to_dict(self) -> dict:
+        """Serialize chain to dict for saving."""
+        return {
+            'base_height': self.base_height,
+            'joints': [j.to_dict() for j in self.joints]
+        }
+
+    @staticmethod
+    def from_dict(data: dict):
+        joints = [DHJoint.from_dict(j) for j in data['joints']]
+        return KinematicChain(joints, base_height=data.get('base_height', 0.0))
+
+    @staticmethod
+    def create_3dof_arm(config: ArmConfig) -> 'KinematicChain':
+        """Create a 3-DOF arm (yaw, pitch, elbow) matching the existing compute_arm_positions convention."""
+        # Base yaw (revolute around Z, at base)
+        j1 = DHJoint('revolute', theta=0.0, d=config.base_height, a=0.0, alpha=0.0, name="Base Yaw")
+        # Shoulder pitch (revolute around Y, link length = upper_arm_length)
+        j2 = DHJoint('revolute', theta=0.0, d=0.0, a=config.upper_arm_length, alpha=0.0, name="Shoulder Pitch")
+        # Elbow pitch (revolute around Y, link length = lower_arm_length)
+        j3 = DHJoint('revolute', theta=0.0, d=0.0, a=config.lower_arm_length, alpha=0.0, name="Elbow Pitch")
+        # Wrist offset (fixed, gripper length along X)
+        j4 = DHJoint('fixed', theta=0.0, d=0.0, a=config.gripper_offset, alpha=0.0, name="Gripper Offset")
+        return KinematicChain([j1, j2, j3, j4], base_height=0.0)  # base_height already in j1.d
+
+# Presets for common robots
+def preset_3dof_arm() -> KinematicChain:
+    """Return a standard 3-DOF arm with default dimensions."""
+    return KinematicChain.create_3dof_arm(ArmConfig())
+
+def preset_2dof_arm() -> KinematicChain:
+    """2-DOF planar arm (shoulder pitch, elbow pitch) on a fixed base."""
+    j1 = DHJoint('fixed', theta=0.0, d=0.1, a=0.0, alpha=0.0, name="Base Fixed")
+    j2 = DHJoint('revolute', theta=0.0, d=0.0, a=0.3, alpha=0.0, name="Shoulder")
+    j3 = DHJoint('revolute', theta=0.0, d=0.0, a=0.25, alpha=0.0, name="Elbow")
+    j4 = DHJoint('fixed', theta=0.0, d=0.0, a=0.05, alpha=0.0, name="End Link")
+    return KinematicChain([j1, j2, j3, j4], base_height=0.0)

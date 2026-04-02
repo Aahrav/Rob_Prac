@@ -53,6 +53,7 @@ class ArmCanvas(FigureCanvas):
             'gripper': None,
             'joints': [],
             'ground': None,
+            'custom_links': [],  # for generic DH chain cylinders
         }
 
         # Collision state
@@ -333,6 +334,74 @@ class ArmCanvas(FigureCanvas):
             self._workspace_circle.set_data(x, y)
             self._workspace_circle.set_3d_properties(np.zeros_like(x))
             self.draw_idle()
+
+    def draw_chain(self, positions, base_height=None):
+        """
+        Draw a generic kinematic chain from DH parameters.
+        positions: (N+1, 3) numpy array where positions[0] is base origin and positions[-1] is end-effector.
+        base_height: optional height of base from ground; if None, uses positions[0,2].
+        """
+        # Clear previous custom meshes and standard meshes
+        for key in ['base', 'upper', 'lower', 'gripper']:
+            if self.meshes[key]:
+                self.meshes[key].remove()
+                self.meshes[key] = None
+        for coll in self.meshes['joints']:
+            coll.remove()
+        self.meshes['joints'].clear()
+        for coll in self.meshes['custom_links']:
+            coll.remove()
+        self.meshes['custom_links'].clear()
+
+        if positions.shape[0] < 2:
+            return
+
+        if base_height is None:
+            base_height = positions[0, 2]
+
+        # Draw base cuboid (static, from ground up to base origin)
+        base_size = (0.15, 0.15, base_height)
+        base_center = np.array([0.0, 0.0, base_height/2])
+        base_verts, base_faces = cuboid_mesh(base_center, base_size)
+        base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=self.default_colors['base'], edgecolors='#444', linewidths=0.5)
+        self.ax.add_collection3d(base_coll)
+        self.meshes['base'] = base_coll
+
+        # Draw cylinders for each link (between consecutive joints)
+        link_radius = 0.02
+        num_links = positions.shape[0] - 1
+        for i in range(num_links):
+            start_pt = positions[i]
+            end_pt = positions[i+1]
+            verts, faces = cylinder_mesh(start_pt, end_pt, link_radius, resolution=10)
+            # Choose color based on position: first after base = upper, middle = lower, last = gripper
+            if i == 0:
+                color = self.default_colors['upper']
+            elif i == num_links - 1:
+                color = self.default_colors['gripper']
+            else:
+                color = self.default_colors['lower']
+            coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#444', linewidths=0.5)
+            self.ax.add_collection3d(coll)
+            self.meshes['custom_links'].append(coll)
+
+        # Draw joint spheres at each joint position (except base, optional)
+        joint_radius = 0.03
+        # For joints, we have intermediate points (positions[1:-1]) and tip (last)
+        for idx, pt in enumerate(positions[1:]):  # skip base at 0
+            if idx == len(positions) - 2:  # last joint (tip)
+                color_key = 'joint_tip'
+                radius = 0.02
+            else:
+                color_key = 'joint_shoulder' if idx == 0 else 'joint_elbow' if idx == 1 else 'joint_wrist'
+                radius = joint_radius
+            j_verts, j_faces = sphere_mesh(pt, radius, resolution=6)
+            face_arrays = [j_verts[face] for face in j_faces]
+            coll = Poly3DCollection(face_arrays, facecolors=self.default_colors[color_key], edgecolors='#333', linewidths=0.3)
+            self.ax.add_collection3d(coll)
+            self.meshes['joints'].append(coll)
+
+        self.draw_idle()
 
     def toggle_ground(self, visible: bool):
         """Show or hide ground, grid, and workspace boundary."""
