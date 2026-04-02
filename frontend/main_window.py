@@ -123,18 +123,36 @@ class MainWindow(QMainWindow):
         # Right panel: toolbar + canvas
         # Toolbar for view controls
         view_toolbar = QWidget()
-        view_toolbar.setMaximumHeight(32)
-        view_toolbar.setStyleSheet("background-color: #252526;")
+        view_toolbar.setMaximumHeight(36)
+        view_toolbar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #444;")
         toolbar_layout = QHBoxLayout(view_toolbar)
-        toolbar_layout.setContentsMargins(8, 2, 8, 2)
-        toolbar_layout.addStretch()
-        self.btn_reset_view = QPushButton("Reset View")
+        toolbar_layout.setContentsMargins(10, 4, 10, 4)
+        toolbar_layout.setSpacing(6)
+
+        # View preset buttons (small, evenly spaced)
+        btn_style = """
+            QPushButton { background-color: #444; color: #ddd; padding: 4px 10px; border: 1px solid #555; border-radius: 4px; font-size: 10px; }
+            QPushButton:hover { background-color: #555; border-color: #666; }
+            QPushButton:pressed { background-color: #333; }
+        """
+        for name, label in [('front','Front'), ('side','Side'), ('top','Top'), ('iso','Iso'), ('back','Back')]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(btn_style)
+            btn.clicked.connect(lambda checked, n=name: self._set_view_preset(n))
+            toolbar_layout.addWidget(btn)
+
+        toolbar_layout.addSpacing(12)
+
+        # Reset view button (slightly different style)
+        self.btn_reset_view = QPushButton("Reset")
         self.btn_reset_view.setStyleSheet("""
-            QPushButton { background-color: #555; color: #ddd; padding: 6px 12px; border-radius: 4px; font-size: 11px; }
-            QPushButton:hover { background-color: #666; }
+            QPushButton { background-color: #3498db; color: white; padding: 4px 12px; border: 1px solid #2980b9; border-radius: 4px; font-size: 10px; font-weight: bold; }
+            QPushButton:hover { background-color: #2980b9; }
         """)
         self.btn_reset_view.clicked.connect(self._reset_view)
         toolbar_layout.addWidget(self.btn_reset_view)
+
+        toolbar_layout.addStretch()
         self.right_layout.addWidget(view_toolbar)
 
         # 3D canvas
@@ -270,7 +288,14 @@ class MainWindow(QMainWindow):
         """Reset 3D camera to default view."""
         if hasattr(self.arm_canvas, 'reset_view'):
             self.arm_canvas.reset_view()
-            self.status_bar.showMessage("View reset to default")
+            self.status_bar.showMessage("View reset to Isometric")
+
+    def _set_view_preset(self, name):
+        """Set camera to a preset view."""
+        if hasattr(self.arm_canvas, 'set_view'):
+            self.arm_canvas.set_view(name=name)
+            view_names = {'front':'Front', 'side':'Side', 'top':'Top', 'iso':'Isometric', 'back':'Back'}
+            self.status_bar.showMessage(f"View: {view_names.get(name, name)}")
 
     def _play_trajectory(self):
         """Generate and play the trajectory through waypoints."""

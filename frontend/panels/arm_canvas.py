@@ -76,10 +76,10 @@ class ArmCanvas(FigureCanvas):
 
     def _setup_axes(self):
         # Workspace bounds (meters)
-        self.workspace_radius = 1.2  # XY range: ±1.2m for better testing
-        self.workspace_z_max = 1.44   # Z max: 1.44m (maintain 0.6 aspect ratio)
+        self.workspace_radius = 1.2  # XY range: ±1.2m
+        self.workspace_z_max = 1.44   # Z max: 1.44m (aspect ~0.6)
 
-        # Set fixed limits that fit the arm's workspace
+        # Set fixed limits (shoulder at origin, works within these bounds)
         self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_ylim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_zlim([0, self.workspace_z_max])
@@ -88,19 +88,26 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_ylabel('Y (m)')
         self.ax.set_zlabel('Z (m)')
 
-        # Lock aspect ratio so arm maintains proportions
-        # Use equal XY scale, Z scaled by ~0.6 to match typical workspace height/width ratio
+        # Lock aspect ratio (prevents distortion)
         self.ax.set_box_aspect((1, 1, 0.6))
 
-        # Set optimal default camera view (isometric-like)
-        self.default_view = {'elev': 25, 'azim': -45}  # good 3/4 view from front-right
-        self.ax.view_init(elev=self.default_view['elev'], azim=self.default_view['azim'])
+        # Preset views (elev, azim) for educational purposes
+        self.views = {
+            'front':   {'elev': 0,   'azim': 0},    # Look along -Y, X right, Z up
+            'side':    {'elev': 0,   'azim': 90},   # Look along -X, Y right, Z up
+            'top':     {'elev': 90,  'azim': 0},    # Top-down, all axes in plane
+            'iso':     {'elev': 30,  'azim': -45},  # Classic 3/4 isometric
+            'back':    {'elev': 0,   'azim': 180},  # Back view
+        }
+        self.default_view = self.views['iso']
 
-        # Enable interactive navigation (mouse rotate, zoom, pan) — this is on by default
-        # We will also add a home/save button later if needed
+        # Start with isometric view
+        self.ax.view_init(**self.default_view)
+
+        # Enable interactive navigation (mouse rotate, zoom, pan) — default
 
     def _add_static_ground(self):
-        """Create a ground plane with grid (static, added once)."""
+        """Create a ground plane with grid and workspace boundary (static, added once)."""
         size = self.workspace_radius  # ground spans full XY workspace
         # Ground plane
         corners = np.array([
@@ -113,6 +120,7 @@ class ArmCanvas(FigureCanvas):
         ground = Poly3DCollection([corners[face] for face in faces], facecolors='#444', edgecolors='#555', linewidths=0.5, alpha=0.3)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
+
         # Grid lines every 0.25m
         step = 0.25
         # X grid lines (vary Y)
@@ -121,6 +129,14 @@ class ArmCanvas(FigureCanvas):
         # Y grid lines (vary X)
         for y in np.arange(-size, size + step, step):
             self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
+
+        # Workspace boundary: circle at ground showing max XY reach (0.6m)
+        max_reach = 0.6
+        theta = np.linspace(0, 2*np.pi, 64)
+        x_circle = max_reach * np.cos(theta)
+        y_circle = max_reach * np.sin(theta)
+        z_circle = np.zeros_like(x_circle)
+        self.ax.plot(x_circle, y_circle, z_circle, color='#888', linewidth=1.5, alpha=0.7, linestyle='--')
 
     def _detect_collisions(self, positions):
         """
@@ -282,10 +298,23 @@ class ArmCanvas(FigureCanvas):
             self._traj_line = None
         self.draw_idle()
 
-    def reset_view(self):
-        """Reset camera to default view angle."""
-        self.ax.view_init(elev=self.default_view['elev'], azim=self.default_view['azim'])
+    def set_view(self, name: str = None, elev: float = None, azim: float = None):
+        """Set camera view.
+        Args:
+            name: preset view name ('front', 'side', 'top', 'iso', 'back')
+            elev, azim: explicit angles (overrides name if provided)
+        """
+        if name and name in self.views:
+            self.ax.view_init(**self.views[name])
+        elif elev is not None and azim is not None:
+            self.ax.view_init(elev=elev, azim=azim)
+        else:
+            self.ax.view_init(**self.default_view)
         self.draw_idle()
+
+    def reset_view(self):
+        """Reset to default isometric view."""
+        self.set_view(name='iso')
 
     def add_obstacle(self, center, size, color='#c0392b'):
         """Add a static cuboid obstacle to the scene."""
