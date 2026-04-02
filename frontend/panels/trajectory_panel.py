@@ -16,12 +16,11 @@ class TrajectoryPanel(QGroupBox):
 
     target_angles_updated = pyqtSignal(float, float, float)  # q1, q2, q3
 
-    def __init__(self, parent=None):
+    def __init__(self, config: ArmConfig = None, parent=None):
         super().__init__("Trajectory Control (Cartesian)", parent)
 
-        self.config = ArmConfig()
+        self.config = config if config is not None else ArmConfig()
         self.current_pos = [0.5, 0.0, 0.3]  # natural extended pose
-        # Actually default: (0, 0, h0 + L1+L2+Lg) along X direction because q1=0, q2=0, q3=0 gives arm straight along X. So x = L1+L2+Lg, y=0, z=h0. That's good.
 
         self.layout = QVBoxLayout(self)
 
@@ -31,11 +30,11 @@ class TrajectoryPanel(QGroupBox):
         desc.setStyleSheet("color: #aaa; font-size: 11px; padding: 5px;")
         self.layout.addWidget(desc)
 
-        # Expanded ranges for testing: ±1.2m XY, Z up to 1.44m
-        # Allows testing positions beyond normal reach to see IK failures and collisions
-        self._create_position_control("X", -1.2, 1.2, 0.5, 0.01)
-        self._create_position_control("Y", -1.2, 1.2, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, 1.44, 0.3, 0.01)
+        # Ranges based on current config (dynamic)
+        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
+        self._create_position_control("X", -max_reach, max_reach, 0.5, 0.01)
+        self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
+        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, 0.3, 0.01)
 
         # Spacer
         self.layout.addSpacing(10)
@@ -246,3 +245,46 @@ class TrajectoryPanel(QGroupBox):
         """Update current arm angles (for animation)."""
         self.current_angles = [q1, q2, q3]
         # No need to update sliders; sliders represent desired target, not current state.
+
+    def update_config(self, new_config: ArmConfig):
+        """Update the arm configuration and adjust XYZ control ranges."""
+        self.config = new_config
+        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
+
+        step = 0.01  # slider step size (each increment = 1cm)
+
+        # Update ranges for spinboxes (QDoubleSpinBox)
+        self.spin_x.setMinimum(-max_reach)
+        self.spin_x.setMaximum(max_reach)
+        self.spin_y.setMinimum(-max_reach)
+        self.spin_y.setMaximum(max_reach)
+        self.spin_z.setMinimum(0)
+        self.spin_z.setMaximum(self.config.base_height + max_reach)
+
+        # Update ranges for sliders (int steps)
+        self.slider_x.setMinimum(int(-max_reach / step))
+        self.slider_x.setMaximum(int(max_reach / step))
+        self.slider_y.setMinimum(int(-max_reach / step))
+        self.slider_y.setMaximum(int(max_reach / step))
+        self.slider_z.setMinimum(0)
+        self.slider_z.setMaximum(int((self.config.base_height + max_reach) / step))
+
+        # Clamp current target to new limits
+        self.current_pos[0] = np.clip(self.current_pos[0], -max_reach, max_reach)
+        self.current_pos[1] = np.clip(self.current_pos[1], -max_reach, max_reach)
+        self.current_pos[2] = np.clip(self.current_pos[2], 0, self.config.base_height + max_reach)
+
+        # Update controls (spinbox and slider) without emitting signals
+        for i, axis in enumerate(['x', 'y', 'z']):
+            pos = self.current_pos[i]
+            # Spinbox (QDoubleSpinBox)
+            spin = getattr(self, f'spin_{axis}')
+            spin.blockSignals(True)
+            spin.setValue(pos)
+            spin.blockSignals(False)
+            # Slider (QSlider)
+            slider = getattr(self, f'slider_{axis}')
+            int_val = int(round(pos / step))
+            slider.blockSignals(True)
+            slider.setValue(int_val)
+            slider.blockSignals(False)

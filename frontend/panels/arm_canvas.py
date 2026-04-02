@@ -144,6 +144,7 @@ class ArmCanvas(FigureCanvas):
         z_circle = np.zeros_like(x_circle)
         circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
         self._ground_elements.append(circle_line)
+        self._workspace_circle = circle_line  # store for later updates
 
     def _detect_collisions(self, positions):
         """
@@ -322,6 +323,16 @@ class ArmCanvas(FigureCanvas):
     def reset_view(self):
         """Reset to default isometric view."""
         self.set_view(name='iso')
+
+    def update_workspace_boundary(self, radius):
+        """Update the dashed workspace boundary circle to reflect current max reach."""
+        if hasattr(self, '_workspace_circle'):
+            theta = np.linspace(0, 2*np.pi, 64)
+            x = radius * np.cos(theta)
+            y = radius * np.sin(theta)
+            self._workspace_circle.set_data(x, y)
+            self._workspace_circle.set_3d_properties(np.zeros_like(x))
+            self.draw_idle()
 
     def toggle_ground(self, visible: bool):
         """Show or hide ground, grid, and workspace boundary."""

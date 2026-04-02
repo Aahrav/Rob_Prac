@@ -14,7 +14,10 @@ from PyQt6.QtCore import Qt
 # from frontend.panels.arm_canvas import ArmCanvas
 
 # Backend kinematics (used in draw updates)
-from backend.kinematics import compute_arm_positions
+from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof
+
+# Panels
+from frontend.panels.robot_config_panel import RobotConfigPanel
 
 
 class MainWindow(QMainWindow):
@@ -80,6 +83,9 @@ class MainWindow(QMainWindow):
             QScrollBar::handle { background: #555; border-radius: 3px; }
         """)
 
+        # Shared kinematics configuration (mutable)
+        self.kinematics_config = ArmConfig()
+
         # Setup UI panels (lazy imports to avoid circular dependencies)
         self._setup_panels()
 
@@ -90,15 +96,23 @@ class MainWindow(QMainWindow):
         from frontend.panels.arm_canvas import ArmCanvas
 
         # Left panel: controls
+
+        # Connection panel (Simulator/Interactive mode)
         self.connection_panel = ConnectionPanel()
         self.left_layout.addWidget(self.connection_panel)
 
+        # Robot configuration panel (adjustable geometry)
+        self.robot_config_panel = RobotConfigPanel(self.kinematics_config)
+        self.robot_config_panel.config_changed.connect(self._on_robot_config_changed)
+        self.left_layout.addWidget(self.robot_config_panel)
+
+        # Data panel (real-time feedback)
         self.data_panel = DataPanel()
         self.left_layout.addWidget(self.data_panel)
 
-        # Trajectory panel (hidden by default)
+        # Trajectory panel (Cartesian control)
         from frontend.panels.trajectory_panel import TrajectoryPanel
-        self.trajectory_panel = TrajectoryPanel()
+        self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
         self.trajectory_panel.setVisible(False)
         self.left_layout.addWidget(self.trajectory_panel)
 
@@ -178,6 +192,9 @@ class MainWindow(QMainWindow):
 
         # Trajectory panel emits target joint angles (from IK)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
+
+        # Initialize UI to match the shared config
+        self._on_robot_config_changed(self.kinematics_config)
 
     def _on_mode_changed(self, mode: str):
         """Show/hide panels based on mode."""
@@ -305,6 +322,23 @@ class MainWindow(QMainWindow):
             self.arm_canvas.set_view(name=name)
             view_names = {'front':'Front', 'side':'Side', 'top':'Top', 'iso':'Isometric', 'back':'Back'}
             self.status_bar.showMessage(f"View: {view_names.get(name, name)}")
+
+    def _on_robot_config_changed(self, config):
+        """Handle updates to robot geometry parameters."""
+        self.kinematics_config = config
+        max_reach = config.upper_arm_length + config.lower_arm_length + config.gripper_offset
+        # Update workspace boundary circle
+        self.arm_canvas.update_workspace_boundary(max_reach)
+        # Update TrajectoryPanel ranges and clamp target
+        self.trajectory_panel.update_config(config)
+        # Recompute IK for current target (XYZ) with new config
+        x, y, z = self.trajectory_panel.current_pos
+        result = inverse_kinematics_3dof(x, y, z, config=config, elbow_down=True)
+        if result:
+            q1, q2, q3 = result
+            self._apply_target_angles(q1, q2, q3)
+        else:
+            self.status_bar.showMessage("Current target unreachable with new dimensions", 3000)
 
     def _toggle_ground(self, checked):
         """Toggle ground and workspace grid visibility."""
