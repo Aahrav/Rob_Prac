@@ -31,14 +31,11 @@ class TrajectoryPanel(QGroupBox):
         desc.setStyleSheet("color: #aaa; font-size: 11px; padding: 5px;")
         self.layout.addWidget(desc)
 
-        # Ranges based on arm reach:
-        # Max reach approx = upper_arm + lower_arm + gripper_offset = 0.6
-        # X, Y: ±0.6 (workspace wraps around base)
-        # Z: from near ground (0) to above shoulder (~0.8)
-        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
-        self._create_position_control("X", -max_reach, max_reach, 0.5, 0.01)
-        self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, 0.3, 0.01)
+        # Expanded ranges for testing: ±1.2m XY, Z up to 1.44m
+        # Allows testing positions beyond normal reach to see IK failures and collisions
+        self._create_position_control("X", -1.2, 1.2, 0.5, 0.01)
+        self._create_position_control("Y", -1.2, 1.2, 0.0, 0.01)
+        self._create_position_control("Z", 0.0, 1.44, 0.3, 0.01)
 
         # Spacer
         self.layout.addSpacing(10)

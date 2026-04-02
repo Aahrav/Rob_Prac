@@ -76,8 +76,8 @@ class ArmCanvas(FigureCanvas):
 
     def _setup_axes(self):
         # Workspace bounds (meters)
-        self.workspace_radius = 0.8  # max reach in XY
-        self.workspace_z_max = 0.9   # max height
+        self.workspace_radius = 1.2  # XY range: ±1.2m for better testing
+        self.workspace_z_max = 1.44   # Z max: 1.44m (maintain 0.6 aspect ratio)
 
         # Set fixed limits that fit the arm's workspace
         self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
@@ -101,7 +101,7 @@ class ArmCanvas(FigureCanvas):
 
     def _add_static_ground(self):
         """Create a ground plane with grid (static, added once)."""
-        size = 1.0  # 1m x 1m ground centered at origin
+        size = self.workspace_radius  # ground spans full XY workspace
         # Ground plane
         corners = np.array([
             [-size, -size, 0],
