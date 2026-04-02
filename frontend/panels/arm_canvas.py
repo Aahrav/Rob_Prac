@@ -62,9 +62,12 @@ class ArmCanvas(FigureCanvas):
         self.trajectory_points = []
         self._traj_line = None
 
-        # Obstacles (list of dicts with 'center', 'size', and mesh collection)
+        # Obstacles
         self.obstacles = []
         self.obstacle_meshes = []
+
+        # Workspace reference elements (ground + grid + boundary)
+        self._ground_elements = []  # list of artists to toggle
 
         self._init_empty_plot()
 
@@ -109,7 +112,8 @@ class ArmCanvas(FigureCanvas):
     def _add_static_ground(self):
         """Create a ground plane with grid and workspace boundary (static, added once)."""
         size = self.workspace_radius  # ground spans full XY workspace
-        # Ground plane
+
+        # Ground plane (very transparent)
         corners = np.array([
             [-size, -size, 0],
             [ size, -size, 0],
@@ -117,26 +121,29 @@ class ArmCanvas(FigureCanvas):
             [-size,  size, 0],
         ])
         faces = [[0, 1, 2], [0, 2, 3]]
-        ground = Poly3DCollection([corners[face] for face in faces], facecolors='#444', edgecolors='#555', linewidths=0.5, alpha=0.3)
+        ground = Poly3DCollection([corners[face] for face in faces],
+                                   facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
+        self._ground_elements.append(ground)
 
-        # Grid lines every 0.25m
+        # Grid lines every 0.25m (subtle)
         step = 0.25
-        # X grid lines (vary Y)
         for x in np.arange(-size, size + step, step):
-            self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
-        # Y grid lines (vary X)
+            line = self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
+            self._ground_elements.append(line)
         for y in np.arange(-size, size + step, step):
-            self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.5, alpha=0.5)
+            line = self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
+            self._ground_elements.append(line)
 
-        # Workspace boundary: circle at ground showing max XY reach (0.6m)
+        # Workspace boundary: faint circle at ground (max XY reach 0.6m)
         max_reach = 0.6
         theta = np.linspace(0, 2*np.pi, 64)
         x_circle = max_reach * np.cos(theta)
         y_circle = max_reach * np.sin(theta)
         z_circle = np.zeros_like(x_circle)
-        self.ax.plot(x_circle, y_circle, z_circle, color='#888', linewidth=1.5, alpha=0.7, linestyle='--')
+        circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
+        self._ground_elements.append(circle_line)
 
     def _detect_collisions(self, positions):
         """
@@ -315,6 +322,12 @@ class ArmCanvas(FigureCanvas):
     def reset_view(self):
         """Reset to default isometric view."""
         self.set_view(name='iso')
+
+    def toggle_ground(self, visible: bool):
+        """Show or hide ground, grid, and workspace boundary."""
+        for artist in self._ground_elements:
+            artist.set_visible(visible)
+        self.draw_idle()
 
     def add_obstacle(self, center, size, color='#c0392b'):
         """Add a static cuboid obstacle to the scene."""

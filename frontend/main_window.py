@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -143,7 +143,16 @@ class MainWindow(QMainWindow):
 
         toolbar_layout.addSpacing(12)
 
-        # Reset view button (slightly different style)
+        # Ground toggle checkbox
+        self.chk_ground = QCheckBox("Show Ground")
+        self.chk_ground.setChecked(True)
+        self.chk_ground.setStyleSheet("color: #ddd; font-size: 10px;")
+        self.chk_ground.toggled.connect(self._toggle_ground)
+        toolbar_layout.addWidget(self.chk_ground)
+
+        toolbar_layout.addSpacing(8)
+
+        # Reset view button
         self.btn_reset_view = QPushButton("Reset")
         self.btn_reset_view.setStyleSheet("""
             QPushButton { background-color: #3498db; color: white; padding: 4px 12px; border: 1px solid #2980b9; border-radius: 4px; font-size: 10px; font-weight: bold; }
@@ -296,6 +305,12 @@ class MainWindow(QMainWindow):
             self.arm_canvas.set_view(name=name)
             view_names = {'front':'Front', 'side':'Side', 'top':'Top', 'iso':'Isometric', 'back':'Back'}
             self.status_bar.showMessage(f"View: {view_names.get(name, name)}")
+
+    def _toggle_ground(self, checked):
+        """Toggle ground and workspace grid visibility."""
+        if hasattr(self.arm_canvas, 'toggle_ground'):
+            self.arm_canvas.toggle_ground(checked)
+            self.status_bar.showMessage("Ground hidden" if not checked else "Ground shown")
 
     def _play_trajectory(self):
         """Generate and play the trajectory through waypoints."""
