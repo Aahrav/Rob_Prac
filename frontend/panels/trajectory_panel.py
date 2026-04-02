@@ -23,18 +23,19 @@ class TrajectoryPanel(QGroupBox):
         self.current_pos = [0.5, 0.0, 0.3]  # natural extended pose
 
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.layout.setSpacing(10)
 
         # Description
         desc = QLabel("Set end-effector position (meters). Arm will compute joint angles via IK.")
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #aaa; font-size: 11px; padding: 5px;")
+        desc.setStyleSheet("color: #aaa; font-size: 11px; padding: 0;")
         self.layout.addWidget(desc)
 
-        # Ranges based on current config (dynamic)
-        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
-        self._create_position_control("X", -max_reach, max_reach, 0.5, 0.01)
-        self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, 0.3, 0.01)
+        # Workspace ranges (fixed large area for testing, independent of arm size)
+        self._create_position_control("X", -1.2, 1.2, 0.5, 0.01)
+        self._create_position_control("Y", -1.2, 1.2, 0.0, 0.01)
+        self._create_position_control("Z", 0.0, 1.44, 0.3, 0.01)
 
         # Spacer
         self.layout.addSpacing(10)
@@ -101,25 +102,34 @@ class TrajectoryPanel(QGroupBox):
 
     def _create_position_control(self, axis, min_val, max_val, default, step):
         hbox = QHBoxLayout()
+        hbox.setSpacing(8)
         lbl = QLabel(f"{axis}:")
-        lbl.setFixedWidth(50)
+        lbl.setFixedWidth(40)
+        lbl.setStyleSheet("color: #ddd; font-weight: bold;")
         hbox.addWidget(lbl)
 
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(int(min_val*100), int(max_val*100))
         slider.setValue(int(default*100))
+        slider.setStyleSheet("""
+            QSlider::groove:horizontal { background: #444; height: 6px; border-radius: 3px; }
+            QSlider::handle:horizontal { background: #3498db; width: 14px; margin: -4px 0; border-radius: 7px; }
+        """)
 
         spinbox = QDoubleSpinBox()
         spinbox.setRange(min_val, max_val)
         spinbox.setValue(default)
         spinbox.setSingleStep(step)
-        spinbox.setFixedWidth(70)
+        spinbox.setFixedWidth(80)
+        spinbox.setStyleSheet("""
+            QDoubleSpinBox { background: #333; color: #eee; padding: 4px; border: 1px solid #555; border-radius: 4px; }
+        """)
 
-        # Add widgets to hbox
-        hbox.addWidget(slider)
+        # Add widgets to hbox with stretch
+        hbox.addWidget(slider, 1)  # slider expands
         hbox.addWidget(spinbox)
 
-        # Sanitize axis name for attribute (e.g., "Wrist Roll" -> "wrist_roll")
+        # Sanitize axis name for attribute
         axis_key = axis.lower().replace(' ', '_')
         slider.valueChanged.connect(lambda v, key=axis_key: self._on_slider_changed(key, v/100.0))
         spinbox.valueChanged.connect(lambda v, key=axis_key: self._on_spinbox_changed(key, v))
@@ -247,44 +257,5 @@ class TrajectoryPanel(QGroupBox):
         # No need to update sliders; sliders represent desired target, not current state.
 
     def update_config(self, new_config: ArmConfig):
-        """Update the arm configuration and adjust XYZ control ranges."""
+        """Update the arm configuration used for IK calculations."""
         self.config = new_config
-        max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
-
-        step = 0.01  # slider step size (each increment = 1cm)
-
-        # Update ranges for spinboxes (QDoubleSpinBox)
-        self.spin_x.setMinimum(-max_reach)
-        self.spin_x.setMaximum(max_reach)
-        self.spin_y.setMinimum(-max_reach)
-        self.spin_y.setMaximum(max_reach)
-        self.spin_z.setMinimum(0)
-        self.spin_z.setMaximum(self.config.base_height + max_reach)
-
-        # Update ranges for sliders (int steps)
-        self.slider_x.setMinimum(int(-max_reach / step))
-        self.slider_x.setMaximum(int(max_reach / step))
-        self.slider_y.setMinimum(int(-max_reach / step))
-        self.slider_y.setMaximum(int(max_reach / step))
-        self.slider_z.setMinimum(0)
-        self.slider_z.setMaximum(int((self.config.base_height + max_reach) / step))
-
-        # Clamp current target to new limits
-        self.current_pos[0] = np.clip(self.current_pos[0], -max_reach, max_reach)
-        self.current_pos[1] = np.clip(self.current_pos[1], -max_reach, max_reach)
-        self.current_pos[2] = np.clip(self.current_pos[2], 0, self.config.base_height + max_reach)
-
-        # Update controls (spinbox and slider) without emitting signals
-        for i, axis in enumerate(['x', 'y', 'z']):
-            pos = self.current_pos[i]
-            # Spinbox (QDoubleSpinBox)
-            spin = getattr(self, f'spin_{axis}')
-            spin.blockSignals(True)
-            spin.setValue(pos)
-            spin.blockSignals(False)
-            # Slider (QSlider)
-            slider = getattr(self, f'slider_{axis}')
-            int_val = int(round(pos / step))
-            slider.blockSignals(True)
-            slider.setValue(int_val)
-            slider.blockSignals(False)

@@ -47,7 +47,8 @@ class MainWindow(QMainWindow):
         self.left_panel = QWidget()
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(10, 10, 10, 10)
-        self.left_panel.setMinimumWidth(300)
+        left_layout.setSpacing(12)
+        self.left_panel.setMinimumWidth(320)
         self.left_panel.setStyleSheet("background-color: #1e1e1e; border-right: 1px solid #444;")
         self.left_layout = left_layout  # keep reference to add panels
 
@@ -65,7 +66,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter, 1)
 
         # Set initial splitter sizes
-        splitter.setSizes([300, 900])
+        splitter.setSizes([320, 880])
 
         # Set a reasonable default window size
         self.resize(1200, 800)
