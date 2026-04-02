@@ -13,6 +13,8 @@ class DataPanel(QGroupBox):
         super().__init__("Data Readout", parent)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setSpacing(8)
 
         self.lbl_roll = QLabel("Roll: 0.0°")
         self.lbl_pitch = QLabel("Pitch: 0.0°")
@@ -21,11 +23,11 @@ class DataPanel(QGroupBox):
 
         # Style
         for lbl in [self.lbl_roll, self.lbl_pitch, self.lbl_yaw]:
-            lbl.setStyleSheet("font-size: 16px; font-weight: bold; padding: 8px;")
+            lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #eee; padding: 4px;")
             layout.addWidget(lbl)
 
-        layout.addSpacing(10)
-        self.lbl_rate.setStyleSheet("font-size: 12px; color: #aaa; padding: 5px;")
+        layout.addSpacing(6)
+        self.lbl_rate.setStyleSheet("font-size: 12px; color: #aaa; padding: 4px;")
         layout.addWidget(self.lbl_rate)
 
         self.setStyleSheet("""

@@ -22,11 +22,14 @@ class ConnectionPanel(QGroupBox):
         self.is_connected = False
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setSpacing(8)
 
         # Mode selector
         layout.addWidget(QLabel("Mode:"))
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Simulation", "Interactive"])
+        self.mode_combo.setStyleSheet("background: #444; color: #eee; padding: 4px;")
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addWidget(self.mode_combo)
 
@@ -34,17 +37,22 @@ class ConnectionPanel(QGroupBox):
         layout.addWidget(QLabel("Port:"))
         self.port_combo = QComboBox()
         self.refresh_ports()
+        self.port_combo.setStyleSheet("background: #444; color: #eee; padding: 4px;")
         layout.addWidget(self.port_combo)
 
         # Connect button
         self.connect_btn = QPushButton("Connect")
+        self.connect_btn.setStyleSheet("""
+            QPushButton { background: #3498db; color: white; font-weight: bold; padding: 8px; border-radius: 4px; }
+            QPushButton:hover { background: #2980b9; }
+        """)
         self.connect_btn.clicked.connect(self._on_connect_clicked)
         layout.addWidget(self.connect_btn)
 
         # Status label
         self.status_label = QLabel("Disconnected")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 5px;")
+        self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 4px;")
         layout.addWidget(self.status_label)
 
         self.setStyleSheet("""

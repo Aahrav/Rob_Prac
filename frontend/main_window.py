@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QScrollArea
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -43,13 +43,21 @@ class MainWindow(QMainWindow):
         # Splitter for left/right panels
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel container
-        self.left_panel = QWidget()
-        left_layout = QVBoxLayout(self.left_panel)
+        # Left panel container with scroll area
+        self.left_scroll = QScrollArea()
+        self.left_scroll.setWidgetResizable(True)
+        self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.left_scroll.setStyleSheet("QScrollArea { border: none; background-color: #1e1e1e; }")
+
+        # Content widget inside scroll area
+        self.left_content = QWidget()
+        left_layout = QVBoxLayout(self.left_content)
         left_layout.setContentsMargins(10, 10, 10, 10)
         left_layout.setSpacing(12)
-        self.left_panel.setMinimumWidth(320)
-        self.left_panel.setStyleSheet("background-color: #1e1e1e; border-right: 1px solid #444;")
+        self.left_content.setStyleSheet("background-color: #1e1e1e;")
+        self.left_content.setMinimumWidth(300)  # ensure content has intrinsic width
+        self.left_scroll.setWidget(self.left_content)
         self.left_layout = left_layout  # keep reference to add panels
 
         # Right panel container
@@ -58,15 +66,15 @@ class MainWindow(QMainWindow):
         self.right_layout.setContentsMargins(0, 0, 0, 0)
         self.right_panel.setStyleSheet("background-color: #2d2d2d;")
 
-        splitter.addWidget(self.left_panel)
+        splitter.addWidget(self.left_scroll)
         splitter.addWidget(self.right_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter, 1)
 
-        # Set initial splitter sizes
-        splitter.setSizes([320, 880])
+        # Set initial splitter sizes (left ~30%, right ~70%)
+        splitter.setSizes([360, 840])
 
         # Set a reasonable default window size
         self.resize(1200, 800)

@@ -28,8 +28,8 @@ class RobotConfigPanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setSpacing(10)
 
         # Title / preset selector
         title = QLabel("Robot Parameters")
@@ -54,7 +54,8 @@ class RobotConfigPanel(QWidget):
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }
         """)
         group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(6)
+        group_layout.setSpacing(8)
+        group_layout.setContentsMargins(8, 12, 8, 12)
 
         # Spinbox style
         sb_style = """

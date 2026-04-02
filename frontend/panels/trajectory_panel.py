@@ -4,8 +4,7 @@ TrajectoryPanel - Interactive control for moving the arm to a target position.
 Set XYZ coordinates, compute IK, and optionally animate the movement.
 """
 
-import sys
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel, QSlider, QPushButton, QDoubleSpinBox, QHBoxLayout
+from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel, QSlider, QPushButton, QDoubleSpinBox, QHBoxLayout, QGridLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
 from backend.kinematics import inverse_kinematics_3dof, ArmConfig
@@ -24,7 +23,7 @@ class TrajectoryPanel(QGroupBox):
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
-        self.layout.setSpacing(10)
+        self.layout.setSpacing(12)
 
         # Description
         desc = QLabel("Set end-effector position (meters). Arm will compute joint angles via IK.")
@@ -33,9 +32,7 @@ class TrajectoryPanel(QGroupBox):
         self.layout.addWidget(desc)
 
         # Workspace ranges (fixed large area for testing, independent of arm size)
-        self._create_position_control("X", -1.2, 1.2, 0.5, 0.01)
-        self._create_position_control("Y", -1.2, 1.2, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, 1.44, 0.3, 0.01)
+        self._create_position_controls()
 
         # Spacer
         self.layout.addSpacing(10)
@@ -100,43 +97,66 @@ class TrajectoryPanel(QGroupBox):
         self.animation_start_angles = [0.0, 0.0, 0.0]
         self.animation_target_angles = [0.0, 0.0, 0.0]
 
-    def _create_position_control(self, axis, min_val, max_val, default, step):
-        hbox = QHBoxLayout()
-        hbox.setSpacing(8)
-        lbl = QLabel(f"{axis}:")
-        lbl.setFixedWidth(40)
-        lbl.setStyleSheet("color: #ddd; font-weight: bold;")
-        hbox.addWidget(lbl)
+    def _create_position_controls(self):
+        """Create XYZ controls using a grid layout for perfect alignment."""
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
 
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(int(min_val*100), int(max_val*100))
-        slider.setValue(int(default*100))
-        slider.setStyleSheet("""
+        # Slider style
+        slider_style = """
             QSlider::groove:horizontal { background: #444; height: 6px; border-radius: 3px; }
             QSlider::handle:horizontal { background: #3498db; width: 14px; margin: -4px 0; border-radius: 7px; }
-        """)
-
-        spinbox = QDoubleSpinBox()
-        spinbox.setRange(min_val, max_val)
-        spinbox.setValue(default)
-        spinbox.setSingleStep(step)
-        spinbox.setFixedWidth(80)
-        spinbox.setStyleSheet("""
+        """
+        # Spinbox style
+        spin_style = """
             QDoubleSpinBox { background: #333; color: #eee; padding: 4px; border: 1px solid #555; border-radius: 4px; }
-        """)
+        """
+        # Label style
+        label_style = "color: #ddd; font-weight: bold;"
 
-        # Add widgets to hbox with stretch
-        hbox.addWidget(slider, 1)  # slider expands
-        hbox.addWidget(spinbox)
+        # Define axes with ranges and defaults
+        axes = [
+            ('X', -1.2, 1.2, 0.5),
+            ('Y', -1.2, 1.2, 0.0),
+            ('Z', 0.0, 1.44, 0.3),
+        ]
 
-        # Sanitize axis name for attribute
-        axis_key = axis.lower().replace(' ', '_')
-        slider.valueChanged.connect(lambda v, key=axis_key: self._on_slider_changed(key, v/100.0))
-        spinbox.valueChanged.connect(lambda v, key=axis_key: self._on_spinbox_changed(key, v))
+        for row, (axis, min_val, max_val, default) in enumerate(axes):
+            axis_key = axis.lower()
 
-        setattr(self, f"slider_{axis_key}", slider)
-        setattr(self, f"spin_{axis_key}", spinbox)
-        self.layout.addLayout(hbox)
+            # Label
+            lbl = QLabel(f"{axis}:")
+            lbl.setStyleSheet(label_style)
+            lbl.setFixedWidth(30)
+            grid.addWidget(lbl, row, 0)
+
+            # Slider
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(int(min_val * 100), int(max_val * 100))
+            slider.setValue(int(default * 100))
+            slider.setStyleSheet(slider_style)
+            grid.addWidget(slider, row, 1)
+
+            # Spinbox
+            spinbox = QDoubleSpinBox()
+            spinbox.setRange(min_val, max_val)
+            spinbox.setValue(default)
+            spinbox.setSingleStep(0.01)
+            spinbox.setFixedWidth(80)
+            spinbox.setStyleSheet(spin_style)
+            grid.addWidget(spinbox, row, 2)
+
+            # Connect signals
+            slider.valueChanged.connect(lambda v, key=axis_key: self._on_slider_changed(key, v/100.0))
+            spinbox.valueChanged.connect(lambda v, key=axis_key: self._on_spinbox_changed(key, v))
+
+            # Store references
+            setattr(self, f"slider_{axis_key}", slider)
+            setattr(self, f"spin_{axis_key}", spinbox)
+
+        # Add grid to main layout
+        self.layout.addLayout(grid)
 
     def _on_slider_changed(self, axis_key, value):
         spin = getattr(self, f"spin_{axis_key}")
@@ -175,17 +195,14 @@ class TrajectoryPanel(QGroupBox):
 
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
-
         x, y, z = self.current_pos
         result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
         if result is None:
             self.lbl_status.setText("Target unreachable")
             self.lbl_status.setStyleSheet("color: #e74c3c;")
-
             return
 
         q1, q2, q3 = result
-        # Convert to Python float for PyQt signals
         q1, q2, q3 = float(q1), float(q2), float(q3)
         self.animation_target_angles = (q1, q2, q3)
         self.animating = True
@@ -197,10 +214,7 @@ class TrajectoryPanel(QGroupBox):
 
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
-
-        # Ensure we have current angles; if not, use zeros as fallback
         if not hasattr(self, 'current_angles') or self.current_angles is None or len(self.current_angles) < 3:
-
             self.current_angles = [0.0, 0.0, 0.0]
 
         self.animation_start_angles = self.current_angles[:]
@@ -209,25 +223,21 @@ class TrajectoryPanel(QGroupBox):
         from PyQt6.QtCore import QTimer
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._animation_step)
-        self.animation_timer.start(33)  # ~30fps for smoother performance with Matplotlib redraws
+        self.animation_timer.start(33)  # ~30fps
 
     def _animation_step(self):
         import time
         if self._anim_start_time is None:
             self._anim_start_time = time.perf_counter()
 
-
         elapsed = (time.perf_counter() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
-        # Smooth cosine ease-in-out (RoboAnalyzer style: gentle start/end, fast middle)
+        # Smooth cosine ease-in-out
         import math
         t = 0.5 - 0.5 * math.cos(math.pi * t)
-        # Interpolate each joint angle (6 DOF now)
         start = self.animation_start_angles
         target = self.animation_target_angles
-        # Interpolate 3 angles
         if len(start) < 3 or len(target) < 3:
-
             return
         current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
         current_float = [float(v) for v in current]
@@ -241,7 +251,6 @@ class TrajectoryPanel(QGroupBox):
             self.btn_stop.setEnabled(False)
             self.lbl_status.setText("Complete")
 
-
     def _stop_clicked(self):
         if self.animation_timer:
             self.animation_timer.stop()
@@ -254,7 +263,6 @@ class TrajectoryPanel(QGroupBox):
     def set_current_angles(self, q1, q2, q3):
         """Update current arm angles (for animation)."""
         self.current_angles = [q1, q2, q3]
-        # No need to update sliders; sliders represent desired target, not current state.
 
     def update_config(self, new_config: ArmConfig):
         """Update the arm configuration used for IK calculations."""
