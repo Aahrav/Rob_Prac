@@ -16,7 +16,7 @@ class ArmCanvas(FigureCanvas):
     """Matplotlib 3D canvas for rendering the robotic arm with 3D meshes and collision detection."""
 
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(8, 6), facecolor='#2d2d2d')
+        self.fig = Figure(figsize=(9, 7), facecolor='#2d2d2d', dpi=100)
         super().__init__(self.fig)
         self.setParent(parent)
 
@@ -82,6 +82,10 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_xlabel('X (m)')
         self.ax.set_ylabel('Y (m)')
         self.ax.set_zlabel('Z (m)')
+        # Lock aspect ratio so arm doesn't stretch/squish when limits change
+        self.ax.set_box_aspect((1, 1, 0.6))  # fixed proportions: X:Y:Z
+        # Elevate camera angle for better view
+        self.ax.view_init(elev=20, azim=-60)
 
     def _add_static_ground(self):
         """Create a ground plane with grid (static, added once)."""
@@ -248,56 +252,9 @@ class ArmCanvas(FigureCanvas):
         self.draw_idle()
 
     def _adjust_limits(self, positions):
-        xs = positions[:, 0]
-        ys = positions[:, 1]
-        zs = positions[:, 2]
-        # Include ground plane corners (1m x 1m)
-        ground_corners = np.array([
-            [-0.5, -0.5, 0],
-            [ 0.5, -0.5, 0],
-            [ 0.5,  0.5, 0],
-            [-0.5,  0.5, 0],
-        ])
-        xs = np.concatenate([xs, ground_corners[:,0]])
-        ys = np.concatenate([ys, ground_corners[:,1]])
-        zs = np.concatenate([zs, ground_corners[:,2]])
-        # Include obstacles in limits
-        if self.obstacles:
-            obs_mins = []
-            obs_maxs = []
-            for obs in self.obstacles:
-                c = obs['center']
-                sx, sy, sz = obs['size']
-                half = np.array([sx/2, sy/2, sz/2])
-                obs_mins.append(c - half)
-                obs_maxs.append(c + half)
-            if obs_mins:
-                obs_mins = np.array(obs_mins)
-                obs_maxs = np.array(obs_maxs)
-                xs = np.concatenate([xs, obs_mins[:,0], obs_maxs[:,0]])
-                ys = np.concatenate([ys, obs_mins[:,1], obs_maxs[:,1]])
-                zs = np.concatenate([zs, obs_mins[:,2], obs_maxs[:,2]])
-
-        # Use actual data extents, no artificial padding
-        x_min, x_max = xs.min(), xs.max()
-        y_min, y_max = ys.min(), ys.max()
-        z_min, z_max = zs.min(), zs.max()
-
-        # Add small margin (10%)
-        x_center = (x_max + x_min) / 2
-        y_center = (y_max + y_min) / 2
-        z_center = (z_max + z_min) / 2
-        x_range = max((x_max - x_min) * 1.2, 0.2)  # avoid zero range
-        y_range = max((y_max - y_min) * 1.2, 0.2)
-        z_range = max((z_max - z_min) * 1.2, 0.2)
-
-        # Ensure ground visible to 0
-        if z_min > 0:
-            z_min = 0
-
-        self.ax.set_xlim(x_center - x_range/2, x_center + x_range/2)
-        self.ax.set_ylim(y_center - y_range/2, y_center + y_range/2)
-        self.ax.set_zlim(z_min, z_center + z_range/2)
+        # Don't change limits during animation - fixed workspace keeps aspect ratio stable
+        # Only set once in _setup_axes
+        pass
 
     def set_trajectory(self, points):
         """Set trajectory trace (simple line)."""

@@ -122,7 +122,8 @@ class MainWindow(QMainWindow):
 
         # Right panel: 3D canvas
         self.arm_canvas = ArmCanvas()
-        self.right_layout.addWidget(self.arm_canvas)
+        self.arm_canvas.setMinimumSize(600, 500)
+        self.right_layout.addWidget(self.arm_canvas, stretch=3)
 
         # Setup connection handling
         self.simulator = None
@@ -204,7 +205,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Interactive mode active")
         self.connection_panel.set_status("Use sliders to set target")
         # Set initial target to zero
-        self._apply_target_angles(0, 0, 0)
+        self._apply_target_angles(0, -45, 50)
 
     def _stop_current_mode(self):
         """Stop whichever mode is running."""

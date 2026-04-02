@@ -20,7 +20,7 @@ class TrajectoryPanel(QGroupBox):
         super().__init__("Trajectory Control (Cartesian)", parent)
 
         self.config = ArmConfig()
-        self.current_pos = [0.0, 0.0, self.config.base_height + self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset]  # start at full reach forward
+        self.current_pos = [0.5, 0.0, 0.3]  # natural extended pose
         # Actually default: (0, 0, h0 + L1+L2+Lg) along X direction because q1=0, q2=0, q3=0 gives arm straight along X. So x = L1+L2+Lg, y=0, z=h0. That's good.
 
         self.layout = QVBoxLayout(self)
@@ -36,9 +36,9 @@ class TrajectoryPanel(QGroupBox):
         # X, Y: ±0.6 (workspace wraps around base)
         # Z: from near ground (0) to above shoulder (~0.8)
         max_reach = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
-        self._create_position_control("X", -max_reach, max_reach, max_reach, 0.01)
+        self._create_position_control("X", -max_reach, max_reach, 0.5, 0.01)
         self._create_position_control("Y", -max_reach, max_reach, 0.0, 0.01)
-        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, self.config.base_height, 0.01)
+        self._create_position_control("Z", 0.0, self.config.base_height + max_reach, 0.3, 0.01)
 
         # Spacer
         self.layout.addSpacing(10)
@@ -213,8 +213,9 @@ class TrajectoryPanel(QGroupBox):
 
         elapsed = (time.perf_counter() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
-        # Ease in-out
-        t = 3*t*t - 2*t*t*t
+        # Smooth cosine ease-in-out (RoboAnalyzer style: gentle start/end, fast middle)
+        import math
+        t = 0.5 - 0.5 * math.cos(math.pi * t)
         # Interpolate each joint angle (6 DOF now)
         start = self.animation_start_angles
         target = self.animation_target_angles
