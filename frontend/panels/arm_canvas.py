@@ -75,17 +75,29 @@ class ArmCanvas(FigureCanvas):
         self.draw()
 
     def _setup_axes(self):
-        # Set initial view focused on workspace (arm reach ~0.6-0.8m)
-        self.ax.set_xlim([-0.8, 0.8])
-        self.ax.set_ylim([-0.8, 0.8])
-        self.ax.set_zlim([0, 0.9])
+        # Workspace bounds (meters)
+        self.workspace_radius = 0.8  # max reach in XY
+        self.workspace_z_max = 0.9   # max height
+
+        # Set fixed limits that fit the arm's workspace
+        self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
+        self.ax.set_ylim([-self.workspace_radius, self.workspace_radius])
+        self.ax.set_zlim([0, self.workspace_z_max])
+
         self.ax.set_xlabel('X (m)')
         self.ax.set_ylabel('Y (m)')
         self.ax.set_zlabel('Z (m)')
-        # Lock aspect ratio so arm doesn't stretch/squish when limits change
-        self.ax.set_box_aspect((1, 1, 0.6))  # fixed proportions: X:Y:Z
-        # Elevate camera angle for better view
-        self.ax.view_init(elev=20, azim=-60)
+
+        # Lock aspect ratio so arm maintains proportions
+        # Use equal XY scale, Z scaled by ~0.6 to match typical workspace height/width ratio
+        self.ax.set_box_aspect((1, 1, 0.6))
+
+        # Set optimal default camera view (isometric-like)
+        self.default_view = {'elev': 25, 'azim': -45}  # good 3/4 view from front-right
+        self.ax.view_init(elev=self.default_view['elev'], azim=self.default_view['azim'])
+
+        # Enable interactive navigation (mouse rotate, zoom, pan) — this is on by default
+        # We will also add a home/save button later if needed
 
     def _add_static_ground(self):
         """Create a ground plane with grid (static, added once)."""
@@ -268,6 +280,11 @@ class ArmCanvas(FigureCanvas):
             self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], 'r-', linewidth=1, alpha=0.7)[0]
         else:
             self._traj_line = None
+        self.draw_idle()
+
+    def reset_view(self):
+        """Reset camera to default view angle."""
+        self.ax.view_init(elev=self.default_view['elev'], azim=self.default_view['azim'])
         self.draw_idle()
 
     def add_obstacle(self, center, size, color='#c0392b'):

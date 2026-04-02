@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QLabel, QPushButton, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -120,7 +120,24 @@ class MainWindow(QMainWindow):
 
         self.left_layout.addStretch()
 
-        # Right panel: 3D canvas
+        # Right panel: toolbar + canvas
+        # Toolbar for view controls
+        view_toolbar = QWidget()
+        view_toolbar.setMaximumHeight(32)
+        view_toolbar.setStyleSheet("background-color: #252526;")
+        toolbar_layout = QHBoxLayout(view_toolbar)
+        toolbar_layout.setContentsMargins(8, 2, 8, 2)
+        toolbar_layout.addStretch()
+        self.btn_reset_view = QPushButton("Reset View")
+        self.btn_reset_view.setStyleSheet("""
+            QPushButton { background-color: #555; color: #ddd; padding: 6px 12px; border-radius: 4px; font-size: 11px; }
+            QPushButton:hover { background-color: #666; }
+        """)
+        self.btn_reset_view.clicked.connect(self._reset_view)
+        toolbar_layout.addWidget(self.btn_reset_view)
+        self.right_layout.addWidget(view_toolbar)
+
+        # 3D canvas
         self.arm_canvas = ArmCanvas()
         self.arm_canvas.setMinimumSize(600, 500)
         self.right_layout.addWidget(self.arm_canvas, stretch=3)
@@ -248,6 +265,12 @@ class MainWindow(QMainWindow):
         """Clear the trajectory trace from the canvas."""
         self.arm_canvas.set_trajectory([])
         self.status_bar.showMessage("Trace cleared")
+
+    def _reset_view(self):
+        """Reset 3D camera to default view."""
+        if hasattr(self.arm_canvas, 'reset_view'):
+            self.arm_canvas.reset_view()
+            self.status_bar.showMessage("View reset to default")
 
     def _play_trajectory(self):
         """Generate and play the trajectory through waypoints."""
