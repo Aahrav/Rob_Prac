@@ -230,6 +230,8 @@ class KinematicChainPanel(QGroupBox):
         # Connect internal signals: any chain update triggers FK and label update
         self.chain_updated.connect(self._compute_and_emit_fk)
         self.end_effector_updated.connect(self._update_ee_label)
+        # Compute initial FK to populate end-effector label
+        self._compute_and_emit_fk()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)

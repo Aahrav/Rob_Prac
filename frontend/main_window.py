@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         self.mode_group.addButton(self.radio_custom)
         self.radio_standard.setChecked(True)  # default
         self.radio_standard.toggled.connect(self._on_mode_toggled)
+        self.radio_custom.toggled.connect(self._on_mode_toggled)
         mode_layout.addWidget(self.radio_standard)
         mode_layout.addWidget(self.radio_custom)
         mode_layout.addStretch()
