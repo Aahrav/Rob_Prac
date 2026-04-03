@@ -74,6 +74,22 @@ class ArmCanvas(FigureCanvas):
 
     def _init_empty_plot(self):
         self.ax.cla()
+        # Reset all mesh references to avoid stale artists after clear
+        self.meshes = {
+            'base': None,
+            'upper': None,
+            'lower': None,
+            'gripper': None,
+            'joints': [],
+            'ground': None,
+            'custom_links': [],
+        }
+        self.obstacle_meshes = []
+        self.obstacles = []
+        self.trajectory_points = []
+        self._traj_line = None
+        self.colliding_segments = set()
+        self._ground_elements = []  # will be repopulated by _add_static_ground
         self._setup_axes()
         self._add_static_ground()
         self.draw()
