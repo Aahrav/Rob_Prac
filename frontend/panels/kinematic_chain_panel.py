@@ -400,18 +400,10 @@ class KinematicChainPanel(QGroupBox):
         self._compute_and_emit_fk()
 
     def _compute_and_emit_fk(self):
-        # Compute forward kinematics positions using current joint angles (for variable joints)
+        # Compute forward kinematics using current joint values (theta/d) directly
         try:
-            angles = []
-            for j in self.chain.joints:
-                if j.type == 'revolute':
-                    angles.append(j.theta)
-                elif j.type == 'prismatic':
-                    angles.append(j.d)
-                else:
-                    angles.append(0.0)  # fixed joint contributes 0
-            positions = self.chain.joint_positions(angles)  # (N+1,3)
-            tip_pos = positions[-1]  # last joint is the tip
+            positions = self.chain.joint_positions()  # (N+1,3), uses each joint's own theta/d
+            tip_pos = positions[-1]
             self.end_effector_updated.emit(tip_pos)
         except Exception as e:
             print(f"FK error: {e}")

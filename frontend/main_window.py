@@ -5,7 +5,7 @@ Holds the left panel (controls) and right panel (3D visualization).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QScrollArea, QButtonGroup, QRadioButton, QGroupBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QGroupBox, QButtonGroup, QRadioButton, QScrollArea
 from PyQt6.QtCore import Qt
 
 # Panels will be imported when needed to avoid circular dependencies
@@ -414,16 +414,8 @@ class MainWindow(QMainWindow):
             positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
             self.arm_canvas.draw_arm(positions)
         else:
-            # custom DH mode: compute positions from chain
-            angles = []
-            for j in self.chain_panel.chain.joints:
-                if j.type == 'revolute':
-                    angles.append(j.theta)
-                elif j.type == 'prismatic':
-                    angles.append(j.d)
-                else:
-                    angles.append(0.0)
-            positions = self.chain_panel.chain.joint_positions(angles)
+            # custom DH mode: compute positions from chain (uses each joint's theta/d directly)
+            positions = self.chain_panel.chain.joint_positions()
             # Pass base height from the chain's base_height
             self.arm_canvas.draw_chain(positions, base_height=self.chain_panel.chain.base_height)
 
