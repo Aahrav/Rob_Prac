@@ -21,6 +21,10 @@ class TrajectoryPanel(QGroupBox):
         self.config = config if config is not None else ArmConfig()
         self.current_pos = [0.5, 0.0, 0.3]  # natural extended pose
 
+        # Custom DH chain support (optional)
+        self.chain = None
+        self.use_custom_chain = False
+
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
         self.layout.setSpacing(12)
@@ -180,13 +184,26 @@ class TrajectoryPanel(QGroupBox):
     def _set_target_clicked(self):
         """Compute IK for current XYZ and emit angles."""
         x, y, z = self.current_pos
-        result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
-        if result is None:
-            self.lbl_status.setText("Target unreachable")
-            self.lbl_status.setStyleSheet("color: #e74c3c;")
-            return
-        q1, q2, q3 = result
-        # Normalize angles to -180..180 range
+        if self.use_custom_chain and self.chain is not None:
+            result = self.chain.inverse_kinematics(np.array([x, y, z]))
+            if result is None:
+                self.lbl_status.setText("IK failed")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            # Use the first three joints
+            if len(result) < 3:
+                self.lbl_status.setText("IK error: too few joints")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            q1, q2, q3 = result[0], result[1], result[2]
+        else:
+            result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
+            if result is None:
+                self.lbl_status.setText("Target unreachable")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            q1, q2, q3 = result
+        # Normalize angles to -180..180 range (for revolute joints)
         q1 = (q1 + 180) % 360 - 180
         q2 = (q2 + 180) % 360 - 180
         q3 = (q3 + 180) % 360 - 180
@@ -200,14 +217,24 @@ class TrajectoryPanel(QGroupBox):
     def _animate_clicked(self):
         """Animate from current arm angles to the computed target."""
         x, y, z = self.current_pos
-        result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
-        if result is None:
-            self.lbl_status.setText("Target unreachable")
-            self.lbl_status.setStyleSheet("color: #e74c3c;")
-            return
-
-        q1, q2, q3 = result
-        q1, q2, q3 = float(q1), float(q2), float(q3)
+        if self.use_custom_chain and self.chain is not None:
+            result = self.chain.inverse_kinematics(np.array([x, y, z]))
+            if result is None:
+                self.lbl_status.setText("IK failed")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            if len(result) < 3:
+                self.lbl_status.setText("IK error: too few joints")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            q1, q2, q3 = float(result[0]), float(result[1]), float(result[2])
+        else:
+            result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
+            if result is None:
+                self.lbl_status.setText("Target unreachable")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+            q1, q2, q3 = float(result[0]), float(result[1]), float(result[2])
         self.animation_target_angles = (q1, q2, q3)
         self.animating = True
         self.btn_animate.setEnabled(False)

@@ -360,6 +360,67 @@ class KinematicChain:
         joints = [DHJoint.from_dict(j) for j in data['joints']]
         return KinematicChain(joints, base_height=data.get('base_height', 0.0))
 
+    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 100, tol: float = 0.01) -> Optional[List[float]]:
+        """
+        Numerical IK using Jacobian pseudoinverse.
+        Solves for joint angles (in degrees) that place the end-effector at target_position.
+        Returns list of angles (one per joint). Fixed joints are ignored (their value won't affect result).
+        """
+        n = len(self.joints)
+        if n == 0:
+            return None
+        # Determine which joints are variable (revolute or prismatic). We'll solve for all that change.
+        variable_mask = []
+        for j in self.joints:
+            variable_mask.append(j.type in ('revolute', 'prismatic'))
+        var_indices = [i for i, v in enumerate(variable_mask) if v]
+        if not var_indices:
+            return None
+
+        # Initial guess
+        if initial_angles is None:
+            angles = []
+            for j in self.joints:
+                if j.type == 'revolute':
+                    angles.append(j.theta)
+                elif j.type == 'prismatic':
+                    angles.append(j.d)
+                else:
+                    angles.append(0.0)
+        else:
+            angles = list(initial_angles)
+
+        # Small delta in degrees for finite differences
+        delta_deg = 0.1
+
+        for it in range(max_iter):
+            # Forward kinematics with current angles
+            transforms = self.forward_kinematics(angles)
+            ee_pos = transforms[-1][:3, 3]
+            error = target_position - ee_pos
+            if np.linalg.norm(error) < tol:
+                return angles
+
+            # Compute Jacobian J (3 x n) via finite differences
+            J = np.zeros((3, n))
+            for idx in var_indices:
+                perturbed = angles.copy()
+                perturbed[idx] += delta_deg
+                pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
+                J[:, idx] = (pos_plus - ee_pos) / delta_deg
+            # Pseudoinverse
+            try:
+                J_pinv = np.linalg.pinv(J)
+            except np.linalg.LinAlgError:
+                return None
+            delta_angles = J_pinv @ error
+            # Update angles
+            for i in var_indices:
+                angles[i] += delta_angles[i]
+
+        # Did not converge
+        return None
+
     @staticmethod
     def create_3dof_arm(config: ArmConfig) -> 'KinematicChain':
         """Create a 3-DOF arm (yaw, pitch, elbow) matching the existing compute_arm_positions convention."""

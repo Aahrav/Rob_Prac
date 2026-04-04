@@ -253,6 +253,8 @@ class MainWindow(QMainWindow):
         """Show/hide panels based on connection mode."""
         # Let _update_panel_visibility handle all visibility based on current mode + connection mode
         self._update_panel_visibility()
+        # Configure TrajectoryPanel to use appropriate IK method
+        self._configure_trajectory_panel_mode()
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
@@ -345,7 +347,29 @@ class MainWindow(QMainWindow):
     def _on_target_angles(self, q1: float, q2: float, q3: float):
         """Handle target angles from trajectory panel (interactive mode)."""
         if self.interactive_controller and self.interactive_controller.active:
-            self._apply_target_angles(q1, q2, q3)
+            # Always update DataPanel
+            self.data_panel.update_values(q1, q2, q3)
+            if self.mode == 'standard':
+                self._apply_target_angles(q1, q2, q3)
+            else:  # custom
+                # Apply angles to the first three variable joints in the chain
+                chain = self.chain_panel.chain
+                count = 0
+                for joint in chain.joints:
+                    if joint.type == 'revolute':
+                        if count == 0:
+                            joint.theta = q1
+                        elif count == 1:
+                            joint.theta = q2
+                        elif count == 2:
+                            joint.theta = q3
+                        count += 1
+                    if count >= 3:
+                        break
+                # Keep trajectory panel's current angles in sync
+                self.trajectory_panel.set_current_angles(q1, q2, q3)
+                # Redraw arm using chain
+                self._refresh_arm_display()
 
     def _apply_target_angles(self, q1: float, q2: float, q3: float):
         """Apply target joint angles to arm (3-DOF)."""
@@ -402,6 +426,26 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage("Current target unreachable with new dimensions", 3000)
 
+    def _configure_trajectory_panel_mode(self):
+        """Configure TrajectoryPanel to use standard 3-DOF IK or custom chain IK."""
+        if self.mode == 'custom':
+            self.trajectory_panel.use_custom_chain = True
+            self.trajectory_panel.chain = self.chain_panel.chain
+            # Sync current angles from chain's first three variable joints
+            angles = []
+            for joint in self.chain_panel.chain.joints:
+                if joint.type == 'revolute':
+                    angles.append(joint.theta)
+                elif joint.type == 'prismatic':
+                    angles.append(joint.d)
+                if len(angles) >= 3:
+                    break
+            if len(angles) == 3:
+                self.trajectory_panel.set_current_angles(angles[0], angles[1], angles[2])
+        else:
+            self.trajectory_panel.use_custom_chain = False
+            self.trajectory_panel.chain = None
+
     def _on_mode_toggled(self, checked):
         """Handle switching between Standard 3-DOF and Custom DH modes."""
         if not checked:
@@ -423,13 +467,26 @@ class MainWindow(QMainWindow):
             self.section_chain.setVisible(False)
         else:  # custom
             self.section_robot_params.setVisible(False)
-            self.section_joint_control.setVisible(False)
+            # Show Trajectory/Motion Control section only in Interactive mode (parity with standard)
+            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
+            self.section_joint_control.setVisible(is_interactive)
             self.section_chain.setVisible(True)
 
     def _on_chain_updated(self, chain):
         """Handle updates to the kinematic chain."""
         if self.mode == 'custom':
             self._refresh_arm_display()
+            # Sync TrajectoryPanel's current angles with the chain's first three variable joints
+            angles = []
+            for joint in chain.joints:
+                if joint.type == 'revolute':
+                    angles.append(joint.theta)
+                elif joint.type == 'prismatic':
+                    angles.append(joint.d)
+                if len(angles) >= 3:
+                    break
+            if len(angles) == 3:
+                self.trajectory_panel.set_current_angles(angles[0], angles[1], angles[2])
 
     def _refresh_arm_display(self):
         """Redraw arm according to current mode."""
