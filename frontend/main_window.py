@@ -327,6 +327,10 @@ class MainWindow(QMainWindow):
         if self.interactive_controller:
             self.interactive_controller.active = False
             self.interactive_controller = None
+        # Stop any ongoing animation in TrajectoryPanel (if present and animating)
+        if hasattr(self, 'trajectory_panel') and getattr(self.trajectory_panel, 'animating', False):
+            # Use internal stop to reset UI (safe since we own TrajectoryPanel)
+            self.trajectory_panel._stop_clicked()
         self.arm_canvas._init_empty_plot()
 
     def _on_data_received(self, roll: float, pitch: float, yaw: float):
