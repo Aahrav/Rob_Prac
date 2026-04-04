@@ -68,7 +68,7 @@ class TrajectoryPanel(QGroupBox):
         self.layout.addSpacing(10)
 
         # Status
-        self.lbl_status = QLabel("Ready")
+        self.lbl_status = QLabel("Idle")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setStyleSheet("color: #ddd; padding: 5px; font-size: 11px;")
         self.layout.addWidget(self.lbl_status)
@@ -96,6 +96,8 @@ class TrajectoryPanel(QGroupBox):
         self.animation_timer = None
         self.animation_start_angles = [0.0, 0.0, 0.0]
         self.animation_target_angles = [0.0, 0.0, 0.0]
+        # Disable Animate initially (no target set)
+        self.btn_animate.setEnabled(False)
 
     def _create_position_controls(self):
         """Create XYZ controls using a grid layout for perfect alignment."""
@@ -188,8 +190,10 @@ class TrajectoryPanel(QGroupBox):
         q1 = (q1 + 180) % 360 - 180
         q2 = (q2 + 180) % 360 - 180
         q3 = (q3 + 180) % 360 - 180
-        self.lbl_status.setText(f"IK: q1={q1:.1f} q2={q2:.1f} q3={q3:.1f}")
+        self.lbl_status.setText("Target Set")
         self.lbl_status.setStyleSheet("color: #2ecc71;")
+        # Enable Animate button now that target is set
+        self.btn_animate.setEnabled(True)
         # Emit joint angles
         self.target_angles_updated.emit(float(q1), float(q2), float(q3))
 
@@ -249,7 +253,7 @@ class TrajectoryPanel(QGroupBox):
             self.btn_animate.setEnabled(True)
             self.btn_set.setEnabled(True)
             self.btn_stop.setEnabled(False)
-            self.lbl_status.setText("Complete")
+            self.lbl_status.setText("Target Set")
 
     def _stop_clicked(self):
         if self.animation_timer:

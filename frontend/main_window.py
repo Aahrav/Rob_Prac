@@ -157,8 +157,8 @@ class MainWindow(QMainWindow):
         self.section_chain.setVisible(False)
         self.left_layout.addWidget(self.section_chain)
 
-        # 4. Joint Controls section
-        self.section_joint_control = AccordionSection("Joint Controls")
+        # 4. Trajectory / Motion Control section
+        self.section_joint_control = AccordionSection("Trajectory / Motion Control")
         joint_layout = QVBoxLayout()
         joint_layout.setContentsMargins(0, 0, 0, 0)
         # Trajectory panel for Cartesian control (standard mode)
@@ -247,6 +247,8 @@ class MainWindow(QMainWindow):
         self.connection_panel.mode_changed.connect(self._on_mode_changed)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
         self._on_robot_config_changed(self.kinematics_config)
+        # Set initial visibility based on default mode/connection state
+        self._update_panel_visibility()
 
     def _on_mode_changed(self, mode: str):
         """Show/hide panels based on connection mode."""
@@ -411,11 +413,10 @@ class MainWindow(QMainWindow):
         """Update visibility of accordion sections based on mode and connection."""
         if self.mode == 'standard':
             self.section_robot_params.setVisible(True)
-            self.section_joint_control.setVisible(True)
-            self.section_chain.setVisible(False)
-            # Trajectory panel only visible in interactive mode
+            # Show Trajectory/Motion Control section only in Interactive mode
             is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
-            self.trajectory_panel.setVisible(is_interactive)
+            self.section_joint_control.setVisible(is_interactive)
+            self.section_chain.setVisible(False)
         else:  # custom
             self.section_robot_params.setVisible(False)
             self.section_joint_control.setVisible(False)
