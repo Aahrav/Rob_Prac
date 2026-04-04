@@ -368,6 +368,8 @@ class MainWindow(QMainWindow):
                         break
                 # Keep trajectory panel's current angles in sync
                 self.trajectory_panel.set_current_angles(q1, q2, q3)
+                # Update chain panel's end-effector label
+                self.chain_panel._compute_and_emit_fk()
                 # Redraw arm using chain
                 self._refresh_arm_display()
 
