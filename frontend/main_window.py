@@ -19,6 +19,7 @@ from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinemat
 # Panels
 from frontend.panels.robot_config_panel import RobotConfigPanel
 from frontend.panels.kinematic_chain_panel import KinematicChainPanel
+from frontend.panels.accordion_section import AccordionSection
 
 
 class MainWindow(QMainWindow):
@@ -98,79 +99,101 @@ class MainWindow(QMainWindow):
         self.current_angles = [0.0, 0.0, 0.0]  # for standard mode FK
         self.mode = 'standard'  # 'standard' (3-DOF) or 'custom' (DH chain)
 
-        # Control Mode selector (Standard 3-DOF vs Custom DH)
-        mode_group = QGroupBox("Control Mode")
-        mode_group.setStyleSheet("QGroupBox { border: 1px solid #555; margin-top: 8px; padding-top: 12px; }")
-        mode_layout = QHBoxLayout(mode_group)
+        # === ACCORDION LAYOUT ===
+        # 1. Mode & Simulation Control section
+        self.section_mode = AccordionSection("Mode & Simulation Control")
+        mode_layout = QVBoxLayout()
+        mode_layout.setContentsMargins(8, 8, 8, 8)
+        mode_layout.setSpacing(8)
+
+        # Mode radio buttons
         self.mode_group = QButtonGroup(self)
         self.radio_standard = QRadioButton("Standard 3-DOF")
         self.radio_custom = QRadioButton("Custom DH")
         self.mode_group.addButton(self.radio_standard)
         self.mode_group.addButton(self.radio_custom)
-        self.radio_standard.setChecked(True)  # default
+        self.radio_standard.setChecked(True)
         self.radio_standard.toggled.connect(self._on_mode_toggled)
         self.radio_custom.toggled.connect(self._on_mode_toggled)
         mode_layout.addWidget(self.radio_standard)
         mode_layout.addWidget(self.radio_custom)
-        mode_layout.addStretch()
-        self.left_layout.addWidget(mode_group)
 
-        # Kinematic chain panel (for custom DH) - start hidden
-        self.chain_panel = KinematicChainPanel()
-        self.chain_panel.setVisible(False)
-        self.chain_panel.chain_updated.connect(self._on_chain_updated)
-        self.left_layout.addWidget(self.chain_panel)
-
-        # Setup UI panels (lazy imports to avoid circular dependencies)
-        self._setup_panels()
-
-    def _setup_panels(self):
-        """Instantiate and add panels to the layout."""
+        # Connection panel
         from frontend.panels.connection_panel import ConnectionPanel
-        from frontend.panels.data_panel import DataPanel
-        from frontend.panels.arm_canvas import ArmCanvas
-
-        # Left panel: controls
-
-        # Connection panel (Simulator/Interactive mode)
         self.connection_panel = ConnectionPanel()
-        self.left_layout.addWidget(self.connection_panel)
+        self.connection_panel.connect_requested.connect(self._on_connect_requested)
+        self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
+        self.connection_panel.mode_changed.connect(self._on_mode_changed)
+        mode_layout.addWidget(self.connection_panel)
 
-        # Robot configuration panel (adjustable geometry)
+        mode_layout.addStretch()
+        self.section_mode.setContentLayout(mode_layout)
+        self.left_layout.addWidget(self.section_mode)
+
+        # 2. Robot Parameters section
+        self.section_robot_params = AccordionSection("Robot Parameters")
         self.robot_config_panel = RobotConfigPanel(self.kinematics_config)
         self.robot_config_panel.config_changed.connect(self._on_robot_config_changed)
-        self.left_layout.addWidget(self.robot_config_panel)
-
-        # Data panel (real-time feedback)
+        # Data panel for real-time angle display
+        from frontend.panels.data_panel import DataPanel
         self.data_panel = DataPanel()
-        self.left_layout.addWidget(self.data_panel)
+        params_layout = QVBoxLayout()
+        params_layout.addWidget(self.robot_config_panel)
+        params_layout.addSpacing(8)
+        params_layout.addWidget(self.data_panel)
+        params_layout.addStretch()
+        self.section_robot_params.setContentLayout(params_layout)
+        self.left_layout.addWidget(self.section_robot_params)
 
-        # Trajectory panel (Cartesian control)
+        # 3. Robot Structure (DH) section (hidden by default)
+        self.section_chain = AccordionSection("Robot Structure (DH)")
+        self.chain_panel = KinematicChainPanel()
+        self.chain_panel.chain_updated.connect(self._on_chain_updated)
+        self.chain_panel.end_effector_updated.connect(self._on_ee_updated)
+        chain_layout = QVBoxLayout()
+        chain_layout.addWidget(self.chain_panel)
+        chain_layout.addStretch()
+        self.section_chain.setContentLayout(chain_layout)
+        self.section_chain.setVisible(False)
+        self.left_layout.addWidget(self.section_chain)
+
+        # 4. Joint Controls section
+        self.section_joint_control = AccordionSection("Joint Controls")
+        joint_layout = QVBoxLayout()
+        joint_layout.setContentsMargins(0, 0, 0, 0)
+        # Trajectory panel for Cartesian control (standard mode)
         from frontend.panels.trajectory_panel import TrajectoryPanel
         self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
-        self.trajectory_panel.setVisible(False)
-        self.left_layout.addWidget(self.trajectory_panel)
+        self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
+        self.trajectory_panel.setVisible(False)  # will toggle based on mode
+        joint_layout.addWidget(self.trajectory_panel)
+        joint_layout.addStretch()
+        self.section_joint_control.setContentLayout(joint_layout)
+        self.left_layout.addWidget(self.section_joint_control)
 
-        # Waypoint panel not implemented for 3-DOF; do not add
-
-        # Trajectory playback controls
-        self.btn_play = QPushButton("Play Trajectory")
-        self.btn_play.setStyleSheet("background-color: #8e44ad; color: white; padding: 8px; margin-top: 5px;")
-        self.btn_play.clicked.connect(self._play_trajectory)
-        self.left_layout.addWidget(self.btn_play)
-        self.btn_play.setVisible(False)
-        self.btn_play.setEnabled(False)  # disabled until enough waypoints
-
-        self.btn_clear_trace = QPushButton("Clear Trace")
-        self.btn_clear_trace.setStyleSheet("background-color: #7f8c8d; color: white; padding: 8px;")
-        self.btn_clear_trace.clicked.connect(self._clear_trace)
-        self.left_layout.addWidget(self.btn_clear_trace)
-        self.btn_clear_trace.setVisible(False)
+        # 5. End Effector section (read-only)
+        self.section_ee = AccordionSection("End Effector")
+        ee_layout = QVBoxLayout()
+        ee_layout.setContentsMargins(8, 8, 8, 8)
+        ee_layout.setSpacing(8)
+        self.lbl_ee_status = QLabel("End-effector position will appear here.")
+        self.lbl_ee_status.setStyleSheet("color: #aaa; font-family: monospace; font-size: 11px; padding: 8px; background: #252526; border-radius: 4px;")
+        self.lbl_ee_status.setWordWrap(True)
+        ee_layout.addWidget(self.lbl_ee_status)
+        ee_layout.addStretch()
+        self.section_ee.setContentLayout(ee_layout)
+        self.left_layout.addWidget(self.section_ee)
 
         self.left_layout.addStretch()
 
+        # Setup right panel
+        self._setup_right_panel()
+
+    def _setup_right_panel(self):
+        """Create the right panel: view toolbar + 3D canvas."""
+        from frontend.panels.arm_canvas import ArmCanvas
+
         # Right panel: toolbar + canvas
-        # Toolbar for view controls
         view_toolbar = QWidget()
         view_toolbar.setMaximumHeight(36)
         view_toolbar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #444;")
@@ -178,7 +201,6 @@ class MainWindow(QMainWindow):
         toolbar_layout.setContentsMargins(10, 4, 10, 4)
         toolbar_layout.setSpacing(6)
 
-        # View preset buttons (small, evenly spaced)
         btn_style = """
             QPushButton { background-color: #444; color: #ddd; padding: 4px 10px; border: 1px solid #555; border-radius: 4px; font-size: 10px; }
             QPushButton:hover { background-color: #555; border-color: #666; }
@@ -192,7 +214,6 @@ class MainWindow(QMainWindow):
 
         toolbar_layout.addSpacing(12)
 
-        # Ground toggle checkbox
         self.chk_ground = QCheckBox("Show Ground")
         self.chk_ground.setChecked(True)
         self.chk_ground.setStyleSheet("color: #ddd; font-size: 10px;")
@@ -201,7 +222,6 @@ class MainWindow(QMainWindow):
 
         toolbar_layout.addSpacing(8)
 
-        # Reset view button
         self.btn_reset_view = QPushButton("Reset")
         self.btn_reset_view.setStyleSheet("""
             QPushButton { background-color: #3498db; color: white; padding: 4px 12px; border: 1px solid #2980b9; border-radius: 4px; font-size: 10px; font-weight: bold; }
@@ -215,21 +235,17 @@ class MainWindow(QMainWindow):
 
         # 3D canvas
         self.arm_canvas = ArmCanvas()
-        self.arm_canvas.config = self.kinematics_config  # share mutable config
+        self.arm_canvas.config = self.kinematics_config
         self.arm_canvas.setMinimumSize(600, 500)
         self.right_layout.addWidget(self.arm_canvas, stretch=3)
 
-        # Setup connection handling
+        # Connections
         self.simulator = None
         self.interactive_controller = None
         self.connection_panel.connect_requested.connect(self._on_connect_requested)
         self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
         self.connection_panel.mode_changed.connect(self._on_mode_changed)
-
-        # Trajectory panel emits target joint angles (from IK)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
-
-        # Initialize UI to match the shared config
         self._on_robot_config_changed(self.kinematics_config)
 
     def _on_mode_changed(self, mode: str):
@@ -334,6 +350,9 @@ class MainWindow(QMainWindow):
         # Compute forward kinematics
         positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
+        # Update End Effector display
+        tip = positions[-1]
+        self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
         # Keep trajectory panel in sync
         self.trajectory_panel.set_current_angles(q1, q2, q3)
 
@@ -389,19 +408,18 @@ class MainWindow(QMainWindow):
         self._refresh_arm_display()
 
     def _update_panel_visibility(self):
-        """Update visibility of panels based on mode and connection settings."""
+        """Update visibility of accordion sections based on mode and connection."""
         if self.mode == 'standard':
-            self.robot_config_panel.setVisible(True)
-            self.data_panel.setVisible(True)
-            self.chain_panel.setVisible(False)
+            self.section_robot_params.setVisible(True)
+            self.section_joint_control.setVisible(True)
+            self.section_chain.setVisible(False)
             # Trajectory panel only visible in interactive mode
             is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
             self.trajectory_panel.setVisible(is_interactive)
         else:  # custom
-            self.robot_config_panel.setVisible(False)
-            self.data_panel.setVisible(False)
-            self.trajectory_panel.setVisible(False)
-            self.chain_panel.setVisible(True)
+            self.section_robot_params.setVisible(False)
+            self.section_joint_control.setVisible(False)
+            self.section_chain.setVisible(True)
 
     def _on_chain_updated(self, chain):
         """Handle updates to the kinematic chain."""
@@ -414,17 +432,28 @@ class MainWindow(QMainWindow):
             q1, q2, q3 = self.current_angles
             positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
             self.arm_canvas.draw_arm(positions)
+            # Update EE display
+            tip = positions[-1]
+            self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
         else:
             # custom DH mode: compute positions from chain (uses each joint's theta/d directly)
             positions = self.chain_panel.chain.joint_positions()
             # Pass base height from the chain's base_height
             self.arm_canvas.draw_chain(positions, base_height=self.chain_panel.chain.base_height)
+            # Update EE display immediately
+            tip = positions[-1]
+            self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
 
     def _toggle_ground(self, checked):
         """Toggle ground and workspace grid visibility."""
         if hasattr(self.arm_canvas, 'toggle_ground'):
             self.arm_canvas.toggle_ground(checked)
             self.status_bar.showMessage("Ground hidden" if not checked else "Ground shown")
+
+    def _on_ee_updated(self, pos):
+        """Update end-effector position display (from custom DH mode)."""
+        x, y, z = pos
+        self.lbl_ee_status.setText(f"End-Effector Position:\nX: {x:.3f} m\nY: {y:.3f} m\nZ: {z:.3f} m")
 
     def _play_trajectory(self):
         """Generate and play the trajectory through waypoints."""
