@@ -165,7 +165,6 @@ class MainWindow(QMainWindow):
         from frontend.panels.trajectory_panel import TrajectoryPanel
         self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
-        self.trajectory_panel.setVisible(False)  # will toggle based on mode
         joint_layout.addWidget(self.trajectory_panel)
         joint_layout.addStretch()
         self.section_joint_control.setContentLayout(joint_layout)
@@ -257,6 +256,8 @@ class MainWindow(QMainWindow):
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
+        # Stop any existing mode first
+        self._stop_current_mode()
         if port == "INTERACTIVE":
             self._start_interactive()
         elif port == "SIMULATED (no hardware)":
@@ -316,8 +317,7 @@ class MainWindow(QMainWindow):
         self.connection_panel.set_connected(True)
         self.status_bar.showMessage("Interactive mode active")
         self.connection_panel.set_status("Use sliders to set target")
-        # Set initial target to zero
-        self._apply_target_angles(0, -45, 50)
+        # Do NOT move the arm automatically; wait for user input
 
     def _stop_current_mode(self):
         """Stop whichever mode is running."""
