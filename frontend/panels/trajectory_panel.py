@@ -4,6 +4,8 @@ TrajectoryPanel - Interactive control for moving the arm to a target position.
 Set XYZ coordinates, compute IK, and optionally animate the movement.
 """
 
+import time
+import math
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel, QSlider, QPushButton, QDoubleSpinBox, QHBoxLayout, QGridLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
@@ -105,8 +107,9 @@ class TrajectoryPanel(QGroupBox):
         # Animation state
         self.animating = False
         self.animation_timer = None
-        self.animation_start_angles = [0.0, 0.0, 0.0]
-        self.animation_target_angles = [0.0, 0.0, 0.0]
+        self.animation_start_angles = []  # will be set when animation starts
+        self.animation_target_angles = []
+        self._var_joint_indices = None  # for custom DH: indices of variable joints in chain
         # Disable Animate initially (no target set)
         self.btn_animate.setEnabled(False)
 
@@ -223,7 +226,7 @@ class TrajectoryPanel(QGroupBox):
                 return
 
         if self.use_custom_chain and self.chain is not None:
-            # Build initial angles from chain's current state
+            # Build initial angles for all joints (n-length list)
             initial_angles = []
             for joint in self.chain.joints:
                 if joint.type == 'revolute':
@@ -233,38 +236,32 @@ class TrajectoryPanel(QGroupBox):
                 else:
                     initial_angles.append(0.0)
 
+            # Identify all variable joint indices (revolute or prismatic)
+            var_indices = [i for i, joint in enumerate(self.chain.joints) if joint.type in ('revolute', 'prismatic')]
+            if len(var_indices) < 3:
+                self.lbl_status.setText("Need at least 3 variable joints")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+
             full_solution = self.chain.inverse_kinematics(np.array([x, y, z]), initial_angles=initial_angles)
             if full_solution is None:
                 self.lbl_status.setText("IK failed: unreachable")
                 self.lbl_status.setStyleSheet("color: #e74c3c;")
                 return
 
-            # Identify first three revolute joint indices (primary joints)
-            var_indices = [i for i, joint in enumerate(self.chain.joints) if joint.type == 'revolute']
-            if len(var_indices) < 3:
-                self.lbl_status.setText("Need at least 3 revolute joints")
-                self.lbl_status.setStyleSheet("color: #e74c3c;")
-                return
+            # Extract start and target values for all variable joints
+            start_vars = [initial_angles[i] for i in var_indices]
+            target_vars = [full_solution[i] for i in var_indices]
 
-            first_three = var_indices[:3]
-            start_angles = [initial_angles[i] for i in first_three]
-            target_angles = [full_solution[i] for i in first_three]
+            # Update panel's current_angles for first three and emit to sync UI
+            self.current_angles = start_vars[:3]
+            self.target_angles_updated.emit(*start_vars[:3])
 
-            # Apply solved values to all joints except the first three (keep them at start)
-            for i, joint in enumerate(self.chain.joints):
-                if i not in first_three:
-                    if joint.type == 'revolute':
-                        joint.theta = full_solution[i]
-                    elif joint.type == 'prismatic':
-                        joint.d = full_solution[i]
+            # Store for animation
+            self._var_joint_indices = var_indices
+            self.animation_start_angles = start_vars
+            self.animation_target_angles = target_vars
 
-            # Update panel's current_angles for animation start
-            self.current_angles = start_angles[:]
-            # Refresh display: emit start angles to update main window
-            self.target_angles_updated.emit(*start_angles)
-
-            # Prepare animation
-            self.animation_target_angles = target_angles
             self.animating = True
             self.btn_animate.setEnabled(False)
             self.btn_set.setEnabled(False)
@@ -296,35 +293,53 @@ class TrajectoryPanel(QGroupBox):
 
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
-        if not hasattr(self, 'current_angles') or self.current_angles is None or len(self.current_angles) < 3:
-            self.current_angles = [0.0, 0.0, 0.0]
+        # Only set default start angles if not already configured (e.g., custom mode sets them beforehand)
+        if not self.animation_start_angles:
+            if not hasattr(self, 'current_angles') or self.current_angles is None or len(self.current_angles) < 3:
+                self.current_angles = [0.0, 0.0, 0.0]
+            self.animation_start_angles = self.current_angles[:]
+        if not self.animation_target_angles:
+            # Should have been set; fallback to start
+            self.animation_target_angles = self.animation_start_angles[:]
 
-        self.animation_start_angles = self.current_angles[:]
         self.anim_duration = 2000  # ms
         self._anim_start_time = None
         from PyQt6.QtCore import QTimer
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._animation_step)
-        self.animation_timer.start(33)  # ~30fps
+        self.animation_timer.start(16)  # ~60fps for smoother motion
 
     def _animation_step(self):
-        import time
         if self._anim_start_time is None:
             self._anim_start_time = time.perf_counter()
 
         elapsed = (time.perf_counter() - self._anim_start_time) * 1000  # ms
         t = min(elapsed / self.anim_duration, 1.0)
-        # Smooth cosine ease-in-out
-        import math
-        t = 0.5 - 0.5 * math.cos(math.pi * t)
+        t = 0.5 - 0.5 * math.cos(math.pi * t)  # cosine ease-in-out
+
         start = self.animation_start_angles
         target = self.animation_target_angles
-        if len(start) < 3 or len(target) < 3:
+        n = len(start)
+        if n == 0:
             return
-        current = [start[i] + (target[i] - start[i]) * t for i in range(3)]
-        current_float = [float(v) for v in current]
 
-        self.target_angles_updated.emit(*current_float)
+        # Interpolate all variable joints
+        current = [start[i] + (target[i] - start[i]) * t for i in range(n)]
+
+        # In custom DH mode, apply interpolated values to chain joints
+        if self.use_custom_chain and self._var_joint_indices:
+            for i, joint_idx in enumerate(self._var_joint_indices):
+                joint = self.chain.joints[joint_idx]
+                if joint.type == 'revolute':
+                    joint.theta = current[i]
+                elif joint.type == 'prismatic':
+                    joint.d = current[i]
+
+        # Emit first three values for UI (standard and custom)
+        if n >= 3:
+            self.target_angles_updated.emit(current[0], current[1], current[2])
+        # else: not enough to emit; should not happen
+
         if t >= 1.0:
             self.animation_timer.stop()
             self.animating = False
@@ -332,6 +347,7 @@ class TrajectoryPanel(QGroupBox):
             self.btn_set.setEnabled(True)
             self.btn_stop.setEnabled(False)
             self.lbl_status.setText("Target Set")
+            self._var_joint_indices = None  # cleanup
 
     def _stop_clicked(self):
         if self.animation_timer:
