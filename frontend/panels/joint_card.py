@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                               QComboBox, QDoubleSpinBox, QFrame, QSizePolicy, QMessageBox)
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont
+from frontend.panels.custom_combo_box import CustomComboBox
 
 class JointCard(QWidget):
     """Collapsible card for editing a joint's DH parameters."""
@@ -64,7 +65,7 @@ class JointCard(QWidget):
         row_type = QHBoxLayout()
         lbl_type = QLabel("Type:")
         lbl_type.setFixedWidth(80)
-        self.combo_type = QComboBox()
+        self.combo_type = CustomComboBox()
         self.combo_type.addItems(["revolute", "prismatic"])
         self.combo_type.setCurrentText(self.joint_data['type'])
         self.combo_type.currentTextChanged.connect(self._on_type_changed)
@@ -160,6 +161,8 @@ class JointCard(QWidget):
         self._expanded = not self._expanded
         self.content.setVisible(self._expanded)
         self.btn_expand.setText("−" if self._expanded else "+")
+        self.btn_expand.clearFocus()
+        self.btn_expand.repaint()
 
     def expand(self):
         if not self._expanded:

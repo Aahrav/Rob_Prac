@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QDoubleSpinBox,
     QComboBox, QPushButton, QScrollArea, QMessageBox, QGridLayout, QCheckBox, QLineEdit, QSlider
 )
+from frontend.panels.custom_combo_box import CustomComboBox
+
 from PyQt6.QtCore import pyqtSignal, Qt
 from backend.kinematics import KinematicChain, DHJoint
 import numpy as np
@@ -38,7 +40,7 @@ class JointCard(QGroupBox):
 
         # Joint type
         layout.addWidget(QLabel("Type:"), 0, 0)
-        self.combo_type = QComboBox()
+        self.combo_type = CustomComboBox()
         self.combo_type.addItems(["revolute", "prismatic", "fixed"])
         self.combo_type.setCurrentText(self.joint.type)
         self.combo_type.currentTextChanged.connect(self._on_type_changed)
@@ -241,7 +243,7 @@ class KinematicChainPanel(QGroupBox):
         # Header: Add joint button
         h_top = QHBoxLayout()
         h_top.addWidget(QLabel("Add new joint:"))
-        self.combo_new_type = QComboBox()
+        self.combo_new_type = CustomComboBox()
         self.combo_new_type.addItems(["revolute", "prismatic", "fixed"])
         h_top.addWidget(self.combo_new_type)
         btn_add = QPushButton("+ Add Joint")

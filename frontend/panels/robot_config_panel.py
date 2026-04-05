@@ -2,8 +2,9 @@
 """RobotConfigPanel - Adjustable robotic arm parameters (lengths, offsets)."""
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QDoubleSpinBox, QLabel, QComboBox, QPushButton, QHBoxLayout
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QTimer
 from backend.kinematics import ArmConfig
+from frontend.panels.custom_combo_box import CustomComboBox
 
 
 class RobotConfigPanel(QWidget):
@@ -37,7 +38,7 @@ class RobotConfigPanel(QWidget):
         layout.addWidget(title)
 
         # Preset combo
-        self.preset_combo = QComboBox()
+        self.preset_combo = CustomComboBox()
         self.preset_combo.addItems(list(self.PRESETS.keys()))
         self.preset_combo.setStyleSheet("""
             QComboBox { background: #444; color: #eee; padding: 6px; border: 1px solid #555; border-radius: 4px; }

@@ -4,9 +4,10 @@ ConnectionPanel - UI for selecting mode and connecting.
 """
 
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel, QComboBox, QPushButton
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from backend.config import DEFAULT_BAUD_RATE
 from backend.serial_test import list_available_ports
+from frontend.panels.custom_combo_box import CustomComboBox
 
 
 class ConnectionPanel(QGroupBox):
@@ -27,7 +28,7 @@ class ConnectionPanel(QGroupBox):
 
         # Mode selector
         layout.addWidget(QLabel("Mode:"))
-        self.mode_combo = QComboBox()
+        self.mode_combo = CustomComboBox()
         self.mode_combo.addItems(["Simulation", "Interactive"])
         self.mode_combo.setStyleSheet("background: #444; color: #eee; padding: 4px;")
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
@@ -35,7 +36,7 @@ class ConnectionPanel(QGroupBox):
 
         # Port selector (only for Simulation)
         layout.addWidget(QLabel("Port:"))
-        self.port_combo = QComboBox()
+        self.port_combo = CustomComboBox()
         self.refresh_ports()
         self.port_combo.setStyleSheet("background: #444; color: #eee; padding: 4px;")
         layout.addWidget(self.port_combo)
@@ -86,6 +87,12 @@ class ConnectionPanel(QGroupBox):
             self.port_combo.setVisible(False)
         else:
             self.port_combo.setVisible(True)
+        # Force focus away to prevent visual sticking
+        self.port_combo.clearFocus()
+        self.mode_combo.clearFocus()
+        # Ensure UI updates cleanly
+        self.mode_combo.repaint()
+        self.port_combo.repaint()
         self.mode_changed.emit(mode.lower())
 
     def _on_connect_clicked(self):

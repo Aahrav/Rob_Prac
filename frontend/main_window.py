@@ -255,6 +255,9 @@ class MainWindow(QMainWindow):
         self._update_panel_visibility()
         # Configure TrajectoryPanel to use appropriate IK method
         self._configure_trajectory_panel_mode()
+        # Clear lingering focus and repaint to prevent visually stuck elements
+        self.connection_panel.mode_combo.clearFocus()
+        self.centralWidget().repaint()
 
     def _on_connect_requested(self, port: str, baud: int):
         """Handle connection request."""
@@ -477,6 +480,10 @@ class MainWindow(QMainWindow):
         self._configure_trajectory_panel_mode()
         self._update_view_for_robot()
         self._refresh_arm_display()
+        # Clear lingering focus and force repaint
+        self.radio_standard.clearFocus()
+        self.radio_custom.clearFocus()
+        self.centralWidget().repaint()
 
     def _update_panel_visibility(self):
         """Update visibility of accordion sections based on mode and connection."""

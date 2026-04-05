@@ -67,6 +67,12 @@ class AccordionSection(QWidget):
         # Update chevron indicator
         arrow = "▼" if self._expanded else "▶"
         self.header_btn.setText(f"{arrow}  {self.title}")
+        # Ensure proper visual state change: clear focus, release pressed state
+        self.header_btn.setAutoDefault(False)
+        self.header_btn.clearFocus()
+        self.header_btn.repaint()
+        # Also force the section to repaint so the layout update is visible
+        self.repaint()
 
     def expand(self):
         if not self._expanded:
