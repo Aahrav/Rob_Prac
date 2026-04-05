@@ -399,10 +399,10 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Trace cleared")
 
     def _reset_view(self):
-        """Reset 3D camera to default view."""
-        if hasattr(self.arm_canvas, 'reset_view'):
-            self.arm_canvas.reset_view()
-            self.status_bar.showMessage("View reset to Isometric")
+        """Reset 3D camera to optimal framed isometric view."""
+        self._update_view_for_robot()
+        self.arm_canvas.set_view(name='iso')
+        self.status_bar.showMessage("View reset to Isometric (framed)")
 
     def _set_view_preset(self, name):
         """Set camera to a preset view."""
@@ -427,6 +427,7 @@ class MainWindow(QMainWindow):
             self._apply_target_angles(q1, q2, q3)
         else:
             self.status_bar.showMessage("Current target unreachable with new dimensions", 3000)
+        self._update_view_for_robot()
 
     def _configure_trajectory_panel_mode(self):
         """Configure TrajectoryPanel to use standard 3-DOF IK or custom chain IK."""
@@ -448,6 +449,20 @@ class MainWindow(QMainWindow):
             self.trajectory_panel.use_custom_chain = False
             self.trajectory_panel.chain = None
 
+    def _update_view_for_robot(self):
+        """Adjust the 3D camera to frame the current robot geometry."""
+        if self.mode == 'standard':
+            cfg = self.kinematics_config
+            max_xy = cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
+            max_z = cfg.base_height + cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
+            base_h = cfg.base_height
+        else:  # custom
+            chain = self.chain_panel.chain
+            max_xy = sum(joint.a for joint in chain.joints)
+            max_z = chain.base_height + max_xy
+            base_h = chain.base_height
+        self.arm_canvas.frame_to_fit_robot(max_xy, max_z, base_h)
+
     def _on_mode_toggled(self, checked):
         """Handle switching between Standard 3-DOF and Custom DH modes."""
         if not checked:
@@ -457,6 +472,8 @@ class MainWindow(QMainWindow):
         else:
             self.mode = 'custom'
         self._update_panel_visibility()
+        self._configure_trajectory_panel_mode()
+        self._update_view_for_robot()
         self._refresh_arm_display()
 
     def _update_panel_visibility(self):
@@ -489,6 +506,7 @@ class MainWindow(QMainWindow):
                     break
             if len(angles) == 3:
                 self.trajectory_panel.set_current_angles(angles[0], angles[1], angles[2])
+            self._update_view_for_robot()
 
     def _refresh_arm_display(self):
         """Redraw arm according to current mode."""

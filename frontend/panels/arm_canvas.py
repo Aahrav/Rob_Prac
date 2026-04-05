@@ -351,6 +351,66 @@ class ArmCanvas(FigureCanvas):
             self._workspace_circle.set_3d_properties(np.zeros_like(x))
             self.draw_idle()
 
+    def update_ground(self, radius: float):
+        """Rebuild ground plane, grid, and workspace circle to match new radius."""
+        # Remove existing ground elements
+        for artist in self._ground_elements:
+            artist.remove()
+        self._ground_elements.clear()
+        self.workspace_radius = radius
+        # Ground plane
+        corners = np.array([
+            [-radius, -radius, 0],
+            [ radius, -radius, 0],
+            [ radius,  radius, 0],
+            [-radius,  radius, 0],
+        ])
+        faces = [[0,1,2],[0,2,3]]
+        ground = Poly3DCollection([corners[face] for face in faces],
+                                   facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
+        self.ax.add_collection3d(ground)
+        self._ground_elements.append(ground)
+        # Grid lines every 0.25m
+        step = 0.25
+        for x in np.arange(-radius, radius + step, step):
+            line = self.ax.plot([x, x], [-radius, radius], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
+            self._ground_elements.append(line)
+        for y in np.arange(-radius, radius + step, step):
+            line = self.ax.plot([-radius, radius], [y, y], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
+        self._ground_elements.append(line)
+        # Workspace boundary circle
+        theta = np.linspace(0, 2*np.pi, 64)
+        x_circle = radius * np.cos(theta)
+        y_circle = radius * np.sin(theta)
+        z_circle = np.zeros_like(x_circle)
+        circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
+        self._ground_elements.append(circle_line)
+        self._workspace_circle = circle_line
+        self.draw_idle()
+
+    def frame_to_fit_robot(self, max_horizontal: float, max_vertical: float, base_height: float = 0.0, padding: float = 0.2):
+        """Adjust camera and axis limits to fit a robot with given maximum reach extents."""
+        if max_horizontal <= 0:
+            max_horizontal = 0.5
+        if max_vertical <= 0:
+            max_vertical = 0.5
+        xy_max = max_horizontal * (1 + padding)
+        z_max = max_vertical * (1 + padding)
+        # Set limits
+        self.ax.set_xlim([-xy_max, xy_max])
+        self.ax.set_ylim([-xy_max, xy_max])
+        self.ax.set_zlim([0.0, z_max])
+        # Update ground and grid to new radius
+        self.update_ground(xy_max)
+        # Update box aspect to match data ranges
+        x_range = 2 * xy_max
+        y_range = 2 * xy_max
+        z_range = z_max
+        self.ax.set_box_aspect((x_range, y_range, z_range))
+        # Set camera distance (perspective) to a comfortable multiple of scene size
+        self.ax.dist = max(x_range, y_range, z_range) * 2.5
+        self.draw_idle()
+
     def draw_chain(self, positions, base_height=None):
         """
         Draw a generic kinematic chain from DH parameters.
