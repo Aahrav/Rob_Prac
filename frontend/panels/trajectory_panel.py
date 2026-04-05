@@ -20,6 +20,7 @@ class TrajectoryPanel(QGroupBox):
 
         self.config = config if config is not None else ArmConfig()
         self.current_pos = [0.5, 0.0, 0.3]  # natural extended pose
+        self.target_pos = None
 
         # Custom DH chain support (optional)
         self.chain = None
@@ -182,66 +183,107 @@ class TrajectoryPanel(QGroupBox):
         ]
 
     def _set_target_clicked(self):
-        """Compute IK for current XYZ and emit angles."""
-        x, y, z = self.current_pos
+        """Store the desired XYZ position as target. No IK solving."""
+        self.target_pos = self.current_pos[:]  # copy
+        self.lbl_status.setText("Target set")
+        self.lbl_status.setStyleSheet("color: #2ecc71;")
+        self.btn_animate.setEnabled(True)
+
+
+    def _animate_clicked(self):
+        """Solve IK for stored target and animate movement."""
+        if self.target_pos is None:
+            self.lbl_status.setText("No target set")
+            self.lbl_status.setStyleSheet("color: #e74c3c;")
+            return
+
+        x, y, z = self.target_pos
+
+        # Quick reachability validation
         if self.use_custom_chain and self.chain is not None:
-            result = self.chain.inverse_kinematics(np.array([x, y, z]))
-            if result is None:
-                self.lbl_status.setText("IK failed")
+            max_xy = sum(joint.a for joint in self.chain.joints)
+            if np.sqrt(x*x + y*y) > max_xy * 1.05:
+                self.lbl_status.setText("Target out of reach")
                 self.lbl_status.setStyleSheet("color: #e74c3c;")
                 return
-            # Use the first three joints
-            if len(result) < 3:
-                self.lbl_status.setText("IK error: too few joints")
-                self.lbl_status.setStyleSheet("color: #e74c3c;")
-                return
-            q1, q2, q3 = result[0], result[1], result[2]
         else:
+            max_xy = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
+            if np.sqrt(x*x + y*y) > max_xy * 1.05:
+                self.lbl_status.setText("Target out of reach")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+
+        if self.use_custom_chain and self.chain is not None:
+            # Build initial angles from chain's current state
+            initial_angles = []
+            for joint in self.chain.joints:
+                if joint.type == 'revolute':
+                    initial_angles.append(joint.theta)
+                elif joint.type == 'prismatic':
+                    initial_angles.append(joint.d)
+                else:
+                    initial_angles.append(0.0)
+
+            full_solution = self.chain.inverse_kinematics(np.array([x, y, z]), initial_angles=initial_angles)
+            if full_solution is None:
+                self.lbl_status.setText("IK failed: unreachable")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+
+            # Identify first three revolute joint indices (primary joints)
+            var_indices = [i for i, joint in enumerate(self.chain.joints) if joint.type == 'revolute']
+            if len(var_indices) < 3:
+                self.lbl_status.setText("Need at least 3 revolute joints")
+                self.lbl_status.setStyleSheet("color: #e74c3c;")
+                return
+
+            first_three = var_indices[:3]
+            start_angles = [initial_angles[i] for i in first_three]
+            target_angles = [full_solution[i] for i in first_three]
+
+            # Apply solved values to all joints except the first three (keep them at start)
+            for i, joint in enumerate(self.chain.joints):
+                if i not in first_three:
+                    if joint.type == 'revolute':
+                        joint.theta = full_solution[i]
+                    elif joint.type == 'prismatic':
+                        joint.d = full_solution[i]
+
+            # Update panel's current_angles for animation start
+            self.current_angles = start_angles[:]
+            # Refresh display: emit start angles to update main window
+            self.target_angles_updated.emit(*start_angles)
+
+            # Prepare animation
+            self.animation_target_angles = target_angles
+            self.animating = True
+            self.btn_animate.setEnabled(False)
+            self.btn_set.setEnabled(False)
+            self.btn_stop.setEnabled(True)
+            self.lbl_status.setText("Animating...")
+            self._start_animation()
+
+        else:
+            # Standard 3-DOF mode
             result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
             if result is None:
                 self.lbl_status.setText("Target unreachable")
                 self.lbl_status.setStyleSheet("color: #e74c3c;")
                 return
             q1, q2, q3 = result
-        # Normalize angles to -180..180 range (for revolute joints)
-        q1 = (q1 + 180) % 360 - 180
-        q2 = (q2 + 180) % 360 - 180
-        q3 = (q3 + 180) % 360 - 180
-        self.lbl_status.setText("Target Set")
-        self.lbl_status.setStyleSheet("color: #2ecc71;")
-        # Enable Animate button now that target is set
-        self.btn_animate.setEnabled(True)
-        # Emit joint angles
-        self.target_angles_updated.emit(float(q1), float(q2), float(q3))
+            # Normalize angles to -180..180 range
+            q1 = (q1 + 180) % 360 - 180
+            q2 = (q2 + 180) % 360 - 180
+            q3 = (q3 + 180) % 360 - 180
+            target_angles = [q1, q2, q3]
+            self.animation_target_angles = target_angles
+            self.animating = True
+            self.btn_animate.setEnabled(False)
+            self.btn_set.setEnabled(False)
+            self.btn_stop.setEnabled(True)
+            self.lbl_status.setText("Animating...")
+            self._start_animation()
 
-    def _animate_clicked(self):
-        """Animate from current arm angles to the computed target."""
-        x, y, z = self.current_pos
-        if self.use_custom_chain and self.chain is not None:
-            result = self.chain.inverse_kinematics(np.array([x, y, z]))
-            if result is None:
-                self.lbl_status.setText("IK failed")
-                self.lbl_status.setStyleSheet("color: #e74c3c;")
-                return
-            if len(result) < 3:
-                self.lbl_status.setText("IK error: too few joints")
-                self.lbl_status.setStyleSheet("color: #e74c3c;")
-                return
-            q1, q2, q3 = float(result[0]), float(result[1]), float(result[2])
-        else:
-            result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
-            if result is None:
-                self.lbl_status.setText("Target unreachable")
-                self.lbl_status.setStyleSheet("color: #e74c3c;")
-                return
-            q1, q2, q3 = float(result[0]), float(result[1]), float(result[2])
-        self.animation_target_angles = (q1, q2, q3)
-        self.animating = True
-        self.btn_animate.setEnabled(False)
-        self.btn_set.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        self.lbl_status.setText("Animating...")
-        self._start_animation()
 
     def _start_animation(self):
         """Start local animation timer that emits interpolated joint angles."""
