@@ -448,6 +448,8 @@ class MainWindow(QMainWindow):
         else:
             self.trajectory_panel.use_custom_chain = False
             self.trajectory_panel.chain = None
+        # Update slider ranges to match current machine geometry
+        self.trajectory_panel.update_workspace_ranges()
 
     def _update_view_for_robot(self):
         """Adjust the 3D camera to frame the current robot geometry."""
@@ -507,6 +509,7 @@ class MainWindow(QMainWindow):
             if len(angles) == 3:
                 self.trajectory_panel.set_current_angles(angles[0], angles[1], angles[2])
             self._update_view_for_robot()
+            self.trajectory_panel.update_workspace_ranges()
 
     def _refresh_arm_display(self):
         """Redraw arm according to current mode."""

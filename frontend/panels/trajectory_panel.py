@@ -78,6 +78,12 @@ class TrajectoryPanel(QGroupBox):
         self.lbl_status.setStyleSheet("color: #ddd; padding: 5px; font-size: 11px;")
         self.layout.addWidget(self.lbl_status)
 
+        # Workspace info
+        self.lbl_workspace = QLabel()
+        self.lbl_workspace.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_workspace.setStyleSheet("color: #aaa; padding: 5px; font-size: 11px;")
+        self.layout.addWidget(self.lbl_workspace)
+
         # Stretch to fill remaining space
         self.layout.addStretch()
 
@@ -103,6 +109,9 @@ class TrajectoryPanel(QGroupBox):
         self.animation_target_angles = [0.0, 0.0, 0.0]
         # Disable Animate initially (no target set)
         self.btn_animate.setEnabled(False)
+
+        # Initialize workspace ranges to match default configuration
+        self.update_workspace_ranges()
 
     def _create_position_controls(self):
         """Create XYZ controls using a grid layout for perfect alignment."""
@@ -340,3 +349,50 @@ class TrajectoryPanel(QGroupBox):
     def update_config(self, new_config: ArmConfig):
         """Update the arm configuration used for IK calculations."""
         self.config = new_config
+        self.update_workspace_ranges()
+
+    def update_workspace_ranges(self):
+        """Compute reachable workspace and update slider/spinbox ranges accordingly."""
+        # Compute total reach and base height based on current mode
+        if self.use_custom_chain and self.chain is not None and len(self.chain.joints) > 0:
+            total_reach = sum(joint.a for joint in self.chain.joints)
+            # Add prismatic offsets (current d values)
+            total_reach += sum(joint.d for joint in self.chain.joints if joint.type == 'prismatic')
+            base_h = self.chain.base_height
+        else:
+            cfg = self.config
+            total_reach = cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
+            base_h = cfg.base_height
+
+        # Add 5% safety margin
+        margin = total_reach * 0.05
+        max_xy = total_reach + margin
+        min_xy = -max_xy
+        min_z = 0.0
+        max_z = base_h + total_reach + margin
+
+        # Update X and Y controls
+        for axis in ['x', 'y']:
+            slider = getattr(self, f'slider_{axis}')
+            spin = getattr(self, f'spin_{axis}')
+            slider.setRange(int(min_xy * 100), int(max_xy * 100))
+            spin.setRange(min_xy, max_xy)
+
+        # Update Z controls
+        self.slider_z.setRange(int(min_z * 100), int(max_z * 100))
+        self.spin_z.setRange(min_z, max_z)
+
+        # Clamp current position if out of new ranges
+        x, y, z = self.current_pos
+        new_x = max(min_xy, min(max_xy, x))
+        new_y = max(min_xy, min(max_xy, y))
+        new_z = max(min_z, min(max_z, z))
+        if new_x != x or new_y != y or new_z != z:
+            self.current_pos = [new_x, new_y, new_z]
+            self.spin_x.setValue(new_x)
+            self.spin_y.setValue(new_y)
+            self.spin_z.setValue(new_z)
+
+        # Update workspace info label
+        self.lbl_workspace.setText(f"Max reach: {total_reach:.2f} m")
+
