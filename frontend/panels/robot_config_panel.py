@@ -1,24 +1,92 @@
 #!/usr/bin/env python3
-"""RobotConfigPanel - Adjustable robotic arm parameters (lengths, offsets)."""
+"""
+RobotConfigPanel — Adjustable robotic arm parameters.
+Kinetic Obsidian theme: flat inputs, no QGroupBox borders, 2-col grid layout.
+"""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QDoubleSpinBox, QLabel, QComboBox, QPushButton, QHBoxLayout
-from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+                              QDoubleSpinBox, QLabel, QPushButton, QFrame)
+from PyQt6.QtCore import pyqtSignal
 from backend.kinematics import ArmConfig
 from frontend.panels.custom_combo_box import CustomComboBox
+
+
+# ── Style tokens ─────────────────────────────────────────────────────────────
+SPIN_STYLE = """
+    QDoubleSpinBox {
+        background-color: #0e0e0e;
+        color: #e5e2e1;
+        padding: 5px 8px;
+        border: none;
+        border-radius: 3px;
+        font-size: 11px;
+        selection-background-color: #3498db;
+    }
+    QDoubleSpinBox:focus {
+        border-bottom: 2px solid #3498db;
+    }
+    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+        width: 18px;
+        background-color: #202020;
+        border: none;
+    }
+    QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+        background-color: #2a2a2a;
+    }
+"""
+
+COMBO_STYLE = """
+    QComboBox {
+        background-color: #0e0e0e;
+        color: #e5e2e1;
+        padding: 6px 10px;
+        border: none;
+        border-radius: 4px;
+        font-size: 11px;
+    }
+    QComboBox::drop-down { border: none; width: 24px; }
+    QComboBox::down-arrow { image: none; border-left: 1px solid #353535; width: 20px; }
+    QComboBox QAbstractItemView {
+        background-color: #202020;
+        color: #e5e2e1;
+        selection-background-color: #3498db;
+        border: 1px solid #353535;
+        padding: 4px;
+    }
+"""
+
+LABEL_STYLE = "color: #bfc7d2; font-size: 11px;"
+SECTION_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;"
+
+BTN_GHOST_STYLE = """
+    QPushButton {
+        background-color: transparent;
+        color: #89929b;
+        border: 1px solid #353535;
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+    QPushButton:hover {
+        background-color: #353535;
+        color: #e5e2e1;
+    }
+    QPushButton:pressed {
+        background-color: #2a2a2a;
+    }
+"""
 
 
 class RobotConfigPanel(QWidget):
     """Panel for editing robot geometry parameters."""
 
-    # Emitted when config changes
     config_changed = pyqtSignal(object)  # ArmConfig
 
-    # Preset configurations (name, ArmConfig)
     PRESETS = {
         'Default': ArmConfig(base_height=0.1, upper_arm_length=0.3, lower_arm_length=0.25, gripper_offset=0.05),
-        'Small': ArmConfig(base_height=0.08, upper_arm_length=0.2, lower_arm_length=0.15, gripper_offset=0.03),
-        'Medium': ArmConfig(base_height=0.1, upper_arm_length=0.4, lower_arm_length=0.35, gripper_offset=0.07),
-        'Large': ArmConfig(base_height=0.15, upper_arm_length=0.6, lower_arm_length=0.5, gripper_offset=0.1),
+        'Small':   ArmConfig(base_height=0.08, upper_arm_length=0.2, lower_arm_length=0.15, gripper_offset=0.03),
+        'Medium':  ArmConfig(base_height=0.1, upper_arm_length=0.4, lower_arm_length=0.35, gripper_offset=0.07),
+        'Large':   ArmConfig(base_height=0.15, upper_arm_length=0.6, lower_arm_length=0.5, gripper_offset=0.1),
     }
 
     def __init__(self, config: ArmConfig = None, parent=None):
@@ -29,113 +97,95 @@ class RobotConfigPanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # Title / preset selector
-        title = QLabel("Robot Parameters")
-        title.setStyleSheet("font-weight: bold; color: #eee; font-size: 12px;")
-        layout.addWidget(title)
+        # ── Preset row ────────────────────────────────────────────────────
+        lbl = QLabel("PRESET")
+        lbl.setStyleSheet(SECTION_LABEL)
+        layout.addWidget(lbl)
 
-        # Preset combo
         self.preset_combo = CustomComboBox()
         self.preset_combo.addItems(list(self.PRESETS.keys()))
-        self.preset_combo.setStyleSheet("""
-            QComboBox { background: #444; color: #eee; padding: 6px; border: 1px solid #555; border-radius: 4px; }
-            QComboBox::drop-down { border: none; }
-            QComboBox::down-arrow { image: none; border-left: 1px solid #555; width: 20px; }
-        """)
+        self.preset_combo.setStyleSheet(COMBO_STYLE)
         self.preset_combo.currentTextChanged.connect(self._load_preset)
         layout.addWidget(self.preset_combo)
 
-        # Parameter group
-        group = QGroupBox("Dimensions")
-        group.setStyleSheet("""
-            QGroupBox { color: #eee; font-size: 11px; border: 1px solid #555; margin-top: 12px; padding-top: 12px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }
-        """)
-        group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(8)
-        group_layout.setContentsMargins(8, 12, 8, 12)
+        # ── Separator ─────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #353535; background: #353535; border: none; max-height: 1px;")
+        layout.addWidget(sep)
 
-        # Spinbox style
-        sb_style = """
-            QDoubleSpinBox { background: #333; color: #eee; padding: 6px; border: 1px solid #555; border-radius: 4px; }
-            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 20px; }
-        """
+        # ── Parameters grid ───────────────────────────────────────────────
+        lbl2 = QLabel("DIMENSIONS")
+        lbl2.setStyleSheet(SECTION_LABEL)
+        layout.addWidget(lbl2)
 
-        # Base height
-        group_layout.addWidget(QLabel("Base height (m):"))
-        self.sb_base = QDoubleSpinBox()
-        self.sb_base.setRange(0.05, 0.5)
-        self.sb_base.setSingleStep(0.01)
-        self.sb_base.setDecimals(2)
-        self.sb_base.setStyleSheet(sb_style)
-        self.sb_base.valueChanged.connect(self._on_param_changed)
-        group_layout.addWidget(self.sb_base)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
 
-        # Upper arm length
-        group_layout.addWidget(QLabel("Upper arm (m):"))
-        self.sb_upper = QDoubleSpinBox()
-        self.sb_upper.setRange(0.1, 1.0)
-        self.sb_upper.setSingleStep(0.01)
-        self.sb_upper.setDecimals(2)
-        self.sb_upper.setStyleSheet(sb_style)
-        self.sb_upper.valueChanged.connect(self._on_param_changed)
-        group_layout.addWidget(self.sb_upper)
+        params = [
+            ("Base height", "m", 0.05, 0.5, 0.01, "sb_base"),
+            ("Upper arm",   "m", 0.10, 1.0, 0.01, "sb_upper"),
+            ("Lower arm",   "m", 0.10, 1.0, 0.01, "sb_lower"),
+            ("Gripper",     "m", 0.00, 0.3, 0.01, "sb_gripper"),
+        ]
 
-        # Lower arm length
-        group_layout.addWidget(QLabel("Lower arm (m):"))
-        self.sb_lower = QDoubleSpinBox()
-        self.sb_lower.setRange(0.1, 1.0)
-        self.sb_lower.setSingleStep(0.01)
-        self.sb_lower.setDecimals(2)
-        self.sb_lower.setStyleSheet(sb_style)
-        self.sb_lower.valueChanged.connect(self._on_param_changed)
-        group_layout.addWidget(self.sb_lower)
+        for row, (name, unit, mn, mx, step, attr) in enumerate(params):
+            # Label
+            lbl = QLabel(f"{name}")
+            lbl.setStyleSheet(LABEL_STYLE)
+            grid.addWidget(lbl, row, 0)
 
-        # Gripper offset
-        group_layout.addWidget(QLabel("Gripper offset (m):"))
-        self.sb_gripper = QDoubleSpinBox()
-        self.sb_gripper.setRange(0.0, 0.3)
-        self.sb_gripper.setSingleStep(0.01)
-        self.sb_gripper.setDecimals(2)
-        self.sb_gripper.setStyleSheet(sb_style)
-        self.sb_gripper.valueChanged.connect(self._on_param_changed)
-        group_layout.addWidget(self.sb_gripper)
+            # Spinbox
+            sb = QDoubleSpinBox()
+            sb.setRange(mn, mx)
+            sb.setSingleStep(step)
+            sb.setDecimals(3)
+            sb.setSuffix(f" {unit}")
+            sb.setStyleSheet(SPIN_STYLE)
+            sb.valueChanged.connect(self._on_param_changed)
+            grid.addWidget(sb, row, 1)
+            setattr(self, attr, sb)
 
-        layout.addWidget(group)
+        layout.addLayout(grid)
 
-        # Reset button
-        btn_reset = QPushButton("Reset to Preset")
-        btn_reset.setStyleSheet("""
-            QPushButton { background: #555; color: #eee; padding: 8px; border-radius: 4px; font-weight: bold; }
-            QPushButton:hover { background: #666; }
-        """)
+        # ── Button row ────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+
+        btn_reset = QPushButton("↺  Reset")
+        btn_reset.setStyleSheet(BTN_GHOST_STYLE)
+        btn_reset.setToolTip("Reset to selected preset")
         btn_reset.clicked.connect(self._reset_to_preset)
-        layout.addWidget(btn_reset)
+        btn_row.addWidget(btn_reset)
 
-        layout.addStretch()
+        btn_export = QPushButton("↓  Export DH")
+        btn_export.setStyleSheet(BTN_GHOST_STYLE)
+        btn_export.setToolTip("Export DH parameters to file")
+        btn_export.clicked.connect(self._export_dh)
+        btn_row.addWidget(btn_export)
+
+        layout.addLayout(btn_row)
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _apply_config_to_spinboxes(self):
-        """Populate spinboxes from current config."""
         self.sb_base.setValue(self.config.base_height)
         self.sb_upper.setValue(self.config.upper_arm_length)
         self.sb_lower.setValue(self.config.lower_arm_length)
         self.sb_gripper.setValue(self.config.gripper_offset)
-
-        # Find matching preset or set to 'Default'
         for name, preset in self.PRESETS.items():
             if (preset.base_height == self.config.base_height and
-                preset.upper_arm_length == self.config.upper_arm_length and
-                preset.lower_arm_length == self.config.lower_arm_length and
-                preset.gripper_offset == self.config.gripper_offset):
+                    preset.upper_arm_length == self.config.upper_arm_length and
+                    preset.lower_arm_length == self.config.lower_arm_length and
+                    preset.gripper_offset == self.config.gripper_offset):
                 self.preset_combo.setCurrentText(name)
                 return
-        self.preset_combo.setCurrentText('')  # custom
 
     def _on_param_changed(self):
-        """Update config from spinboxes and emit signal."""
         self.config.base_height = self.sb_base.value()
         self.config.upper_arm_length = self.sb_upper.value()
         self.config.lower_arm_length = self.sb_lower.value()
@@ -143,10 +193,8 @@ class RobotConfigPanel(QWidget):
         self.config_changed.emit(self.config)
 
     def _load_preset(self, name):
-        """Load a preset configuration by mutating the existing config."""
         if name in self.PRESETS:
             preset = self.PRESETS[name]
-            # Mutate the existing config object (preserve reference)
             self.config.base_height = preset.base_height
             self.config.upper_arm_length = preset.upper_arm_length
             self.config.lower_arm_length = preset.lower_arm_length
@@ -155,10 +203,20 @@ class RobotConfigPanel(QWidget):
             self.config_changed.emit(self.config)
 
     def _reset_to_preset(self):
-        """Reset to the selected preset."""
         self._load_preset(self.preset_combo.currentText())
 
+    def _export_dh(self):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Export DH Parameters", "", "CSV Files (*.csv);;Text Files (*.txt)")
+        if path:
+            with open(path, 'w') as f:
+                f.write("# DH Parameters\n")
+                f.write("# a, alpha, d, theta\n")
+                f.write(f"# Base height: {self.config.base_height}\n")
+                f.write(f"{self.config.upper_arm_length}, 0, 0, 0\n")
+                f.write(f"{self.config.lower_arm_length}, 0, 0, 0\n")
+                f.write(f"{self.config.gripper_offset}, 0, 0, 0\n")
+
     def set_config(self, config: ArmConfig):
-        """Replace the entire config object (used for external updates)."""
         self.config = config
         self._apply_config_to_spinboxes()

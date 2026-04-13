@@ -34,83 +34,141 @@ class JointCard(QGroupBox):
         self._apply_to_fields()
 
     def _setup_ui(self):
-        layout = QGridLayout(self)
-        layout.setContentsMargins(8, 20, 8, 8)
-        layout.setSpacing(6)
+        _SPIN = _KCP_SPIN
+        _COMBO = _KCP_COMBO
+        _KEY = "color: #89929b; font-size: 10px; font-weight: 600;"
+        _BTN_ICON = """
+            QPushButton { background: #353535; color: #bfc7d2; border: none; border-radius: 3px;
+                font-size: 12px; font-weight: bold; min-width:26px; max-width:26px; min-height:22px; padding:0; }
+            QPushButton:hover { background: #454548; color: #e5e2e1; }
+        """
+        _BTN_DEL = """
+            QPushButton { background: transparent; color: #e74c3c; border: 1px solid #93000a;
+                border-radius: 3px; font-size: 10px; font-weight: 600; padding: 3px 8px; }
+            QPushButton:hover { background: #93000a; color: #ffdad6; }
+        """
+        from PyQt6.QtWidgets import QFrame
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Joint type
-        layout.addWidget(QLabel("Type:"), 0, 0)
+        # ── Card frame ────────────────────────────────────────────────────
+        card = QFrame()
+        card.setStyleSheet("QFrame { background: #202020; border-radius: 5px; }")
+        card_v = QVBoxLayout(card)
+        card_v.setContentsMargins(0, 0, 0, 0)
+        card_v.setSpacing(0)
+
+        # Header
+        header = QFrame()
+        header.setStyleSheet("QFrame { background: #2a2a2a; border-radius: 5px 5px 0 0; }")
+        h_row = QHBoxLayout(header)
+        h_row.setContentsMargins(10, 6, 8, 6)
+        title_lbl = QLabel(f"<b style='color:#e5e2e1;'>J{self.index+1}</b> <span style='color:#89929b;'>{self.joint.name}</span>")
+        title_lbl.setStyleSheet("font-size: 11px;")
+        h_row.addWidget(title_lbl)
+        self._title_lbl = title_lbl
+        h_row.addStretch()
+        card_v.addWidget(header)
+
+        # Body
+        body = QFrame()
+        body.setStyleSheet("QFrame { background: #202020; border-radius: 0 0 5px 5px; }")
+        grid = QGridLayout(body)
+        grid.setContentsMargins(10, 8, 10, 8)
+        grid.setSpacing(5)
+
+        def _lbl(text):
+            l = QLabel(text)
+            l.setStyleSheet(_KEY)
+            l.setFixedWidth(58)
+            return l
+
+        # Type
+        grid.addWidget(_lbl("Type"), 0, 0)
         self.combo_type = CustomComboBox()
         self.combo_type.addItems(["revolute", "prismatic", "fixed"])
         self.combo_type.setCurrentText(self.joint.type)
+        self.combo_type.setStyleSheet(_COMBO)
         self.combo_type.currentTextChanged.connect(self._on_type_changed)
-        layout.addWidget(self.combo_type, 0, 1)
+        grid.addWidget(self.combo_type, 0, 1)
 
-        # Theta (angle in degrees)
-        layout.addWidget(QLabel("θ (deg):"), 1, 0)
+        # θ
+        grid.addWidget(_lbl("θ  deg"), 1, 0)
         self.spin_theta = QDoubleSpinBox()
         self.spin_theta.setRange(-180.0, 180.0)
         self.spin_theta.setSingleStep(1.0)
+        self.spin_theta.setStyleSheet(_SPIN)
         self.spin_theta.valueChanged.connect(self._on_param_changed)
-        layout.addWidget(self.spin_theta, 1, 1)
+        grid.addWidget(self.spin_theta, 1, 1)
 
-        # d (offset in meters)
-        layout.addWidget(QLabel("d (m):"), 2, 0)
+        # d
+        grid.addWidget(_lbl("d  m"), 2, 0)
         self.spin_d = QDoubleSpinBox()
-        self.spin_d.setRange(0.0, 1.0)
+        self.spin_d.setRange(0.0, 2.0)
         self.spin_d.setSingleStep(0.01)
         self.spin_d.setDecimals(3)
+        self.spin_d.setStyleSheet(_SPIN)
         self.spin_d.valueChanged.connect(self._on_param_changed)
-        layout.addWidget(self.spin_d, 2, 1)
+        grid.addWidget(self.spin_d, 2, 1)
 
-        # a (link length in meters)
-        layout.addWidget(QLabel("a (m):"), 3, 0)
+        # a
+        grid.addWidget(_lbl("a  m"), 3, 0)
         self.spin_a = QDoubleSpinBox()
-        self.spin_a.setRange(0.0, 1.0)
+        self.spin_a.setRange(0.0, 2.0)
         self.spin_a.setSingleStep(0.01)
         self.spin_a.setDecimals(3)
+        self.spin_a.setStyleSheet(_SPIN)
         self.spin_a.valueChanged.connect(self._on_param_changed)
-        layout.addWidget(self.spin_a, 3, 1)
+        grid.addWidget(self.spin_a, 3, 1)
 
-        # alpha (twist in degrees)
-        layout.addWidget(QLabel("α (deg):"), 4, 0)
+        # α
+        grid.addWidget(_lbl("α  deg"), 4, 0)
         self.spin_alpha = QDoubleSpinBox()
         self.spin_alpha.setRange(-180.0, 180.0)
         self.spin_alpha.setSingleStep(1.0)
+        self.spin_alpha.setStyleSheet(_SPIN)
         self.spin_alpha.valueChanged.connect(self._on_param_changed)
-        layout.addWidget(self.spin_alpha, 4, 1)
+        grid.addWidget(self.spin_alpha, 4, 1)
 
-        # Name
-        layout.addWidget(QLabel("Name:"), 5, 0)
-        self.edit_name = QDoubleSpinBox()  # Placeholder: we could use QLineEdit but consistency with spin?
-        # Let's use QLineEdit for name
+        # Name (QLineEdit)
         from PyQt6.QtWidgets import QLineEdit
+        grid.addWidget(_lbl("Name"), 5, 0)
         self.edit_name = QLineEdit()
         self.edit_name.setText(self.joint.name)
+        self.edit_name.setStyleSheet(
+            "QLineEdit { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 2px; "
+            "padding: 4px 6px; font-size: 11px; }"
+            "QLineEdit:focus { border-bottom: 2px solid #3498db; }"
+        )
         self.edit_name.textChanged.connect(self._on_param_changed)
-        layout.addWidget(self.edit_name, 5, 1)
+        grid.addWidget(self.edit_name, 5, 1)
 
-        # Buttons: move up, move down, delete
-        btn_up = QPushButton("↑")
-        btn_up.setFixedWidth(30)
-        btn_up.clicked.connect(lambda: self.move_up_requested.emit(self.index))
-        btn_down = QPushButton("↓")
-        btn_down.setFixedWidth(30)
-        btn_down.clicked.connect(lambda: self.move_down_requested.emit(self.index))
-        btn_del = QPushButton("×")
-        btn_del.setFixedWidth(30)
-        btn_del.setStyleSheet("QPushButton { background: #c0392b; color: white; font-weight: bold; }")
-        btn_del.clicked.connect(lambda: self.delete_requested.emit(self.index))
+        # Separator + button row
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #353535; border: none; max-height: 1px;")
+        grid.addWidget(sep, 6, 0, 1, 2)
 
         hbox = QHBoxLayout()
+        hbox.setSpacing(4)
+        btn_up = QPushButton("↑")
+        btn_up.setStyleSheet(_BTN_ICON)
+        btn_up.clicked.connect(lambda: self.move_up_requested.emit(self.index))
         hbox.addWidget(btn_up)
+        btn_down = QPushButton("↓")
+        btn_down.setStyleSheet(_BTN_ICON)
+        btn_down.clicked.connect(lambda: self.move_down_requested.emit(self.index))
         hbox.addWidget(btn_down)
         hbox.addStretch()
+        btn_del = QPushButton("✕ Delete")
+        btn_del.setStyleSheet(_BTN_DEL)
+        btn_del.clicked.connect(lambda: self.delete_requested.emit(self.index))
         hbox.addWidget(btn_del)
-        layout.addLayout(hbox, 6, 0, 1, 2)
+        grid.addLayout(hbox, 7, 0, 1, 2)
 
-        # Stretch to fill
-        layout.setRowStretch(7, 1)
+        card_v.addWidget(body)
+        layout.addWidget(card)
 
     def _apply_to_fields(self):
         self.combo_type.blockSignals(True)
@@ -132,7 +190,10 @@ class JointCard(QGroupBox):
         self.joint.a = self.spin_a.value()
         self.joint.alpha = self.spin_alpha.value()
         self.joint.name = self.edit_name.text()
-        self.setTitle(f"{self.index+1}. {self.joint.name}")
+        if hasattr(self, '_title_lbl'):
+            self._title_lbl.setText(
+                f"<b style='color:#e5e2e1;'>J{self.index+1}</b> <span style='color:#89929b;'>{self.joint.name}</span>"
+            )
         self.changed.emit(self.index)
 
 
@@ -149,8 +210,10 @@ class JointSlider(QWidget):
     def setup_ui(self):
         hbox = QHBoxLayout(self)
         hbox.setContentsMargins(0, 0, 0, 0)
-        lbl = QLabel(f"{self.index+1}. {self.joint.name}:")
-        lbl.setFixedWidth(100)
+        hbox.setSpacing(8)
+        lbl = QLabel(f"J{self.index+1}")
+        lbl.setFixedWidth(28)
+        lbl.setStyleSheet("color: #92ccff; font-weight: 700; font-size: 11px; font-family: monospace;")
         hbox.addWidget(lbl)
 
         # Slider range: use joint limits if provided, else generous defaults
@@ -174,6 +237,7 @@ class JointSlider(QWidget):
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(int(round(vmin/step)), int(round(vmax/step)))
         self.slider.setValue(int(round(default/step)))
+        self.slider.setStyleSheet(_KCP_SLIDER)
         self.slider.valueChanged.connect(self._on_slider_moved)
 
         self.spin = QDoubleSpinBox()
@@ -181,6 +245,8 @@ class JointSlider(QWidget):
         self.spin.setSingleStep(step)
         self.spin.setDecimals(3 if step < 0.1 else 1)
         self.spin.setValue(default)
+        self.spin.setStyleSheet(_KCP_SPIN)
+        self.spin.setFixedWidth(80)
         self.spin.valueChanged.connect(self._on_spin_changed)
 
         hbox.addWidget(self.slider, 1)
@@ -211,19 +277,41 @@ class JointSlider(QWidget):
         self.slider.setValue(int(round(val / self.step)))
 
 
-class KinematicChainPanel(QGroupBox):
+# ── Kinematic chain panel style tokens ───────────────────────────────────────
+_KCP_SLIDER = """
+    QSlider::groove:horizontal { background: #202020; height: 4px; border-radius: 2px; }
+    QSlider::sub-page:horizontal { background: #3498db; border-radius: 2px; }
+    QSlider::handle:horizontal { background: #92ccff; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+"""
+_KCP_SPIN = """
+    QDoubleSpinBox { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 2px; padding: 3px 6px; font-size: 11px; }
+    QDoubleSpinBox:focus { border-bottom: 2px solid #3498db; }
+    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; background: #1b1b1c; border: none; }
+"""
+_KCP_COMBO = """
+    QComboBox { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 3px; padding: 5px 8px; font-size: 11px; }
+    QComboBox::drop-down { border: none; }
+    QComboBox QAbstractItemView { background: #202020; color: #e5e2e1; selection-background-color: #3498db; border: 1px solid #353535; }
+"""
+_KCP_BTN_ADD = """
+    QPushButton { background-color: #27ae60; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 14px; border: none; border-radius: 4px; }
+    QPushButton:hover { background-color: #2ecc71; }
+"""
+_KCP_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;"
+_KCP_MONO = "color: #92ccff; font-family: 'Consolas', monospace; font-size: 12px;"
+
+
+class KinematicChainPanel(QWidget):
     """Panel for building a custom kinematic chain with DH parameters."""
 
-    chain_updated = pyqtSignal(KinematicChain)  # emitted when chain changes (structure or values)
-    end_effector_updated = pyqtSignal(np.ndarray)  # emitted with (x,y,z) of tip
+    chain_updated = pyqtSignal(KinematicChain)
+    end_effector_updated = pyqtSignal(np.ndarray)
 
     def __init__(self, parent=None):
-        super().__init__("Robot Structure (DH)", parent)
-        self.setStyleSheet("""
-            QGroupBox { border: 1px solid #555; margin-top: 8px; padding-top: 12px; }
-        """)
+        super().__init__(parent)
+        self.setStyleSheet("background-color: transparent;")
         self.chain = KinematicChain(base_height=0.1)
-        self._variable_joint_sliders = []  # list of JointSlider for current variable joints
+        self._variable_joint_sliders = []
 
         self._setup_ui()
         # Add a default joint to get started
@@ -237,52 +325,69 @@ class KinematicChainPanel(QGroupBox):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # Header: Add joint button
+        # ── Add joint row ──────────────────────────────────────────────────
+        lbl_add = QLabel("ADD JOINT")
+        lbl_add.setStyleSheet(_KCP_LABEL)
+        layout.addWidget(lbl_add)
+
         h_top = QHBoxLayout()
-        h_top.addWidget(QLabel("Add new joint:"))
+        h_top.setSpacing(6)
         self.combo_new_type = CustomComboBox()
         self.combo_new_type.addItems(["revolute", "prismatic", "fixed"])
+        self.combo_new_type.setStyleSheet(_KCP_COMBO)
         h_top.addWidget(self.combo_new_type)
         btn_add = QPushButton("+ Add Joint")
-        btn_add.setStyleSheet("QPushButton { background: #27ae60; color: white; font-weight: bold; padding: 6px; }")
+        btn_add.setStyleSheet(_KCP_BTN_ADD)
         btn_add.clicked.connect(self._on_add_joint)
         h_top.addWidget(btn_add)
-        h_top.addStretch()
         layout.addLayout(h_top)
 
-        # Scroll area for joint cards
+        # ── Joint cards scroll area ───────────────────────────────────────
+        lbl_chain = QLabel("CHAIN")
+        lbl_chain.setStyleSheet(_KCP_LABEL)
+        layout.addWidget(lbl_chain)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("QScrollArea { border: none; }")
+        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QWidget { background: transparent; }")
+        self.scroll.setMaximumHeight(320)
         self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
         self.cards_layout = QVBoxLayout(self.cards_container)
-        self.cards_layout.setSpacing(8)
+        self.cards_layout.setSpacing(4)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll.setWidget(self.cards_container)
         layout.addWidget(self.scroll, 1)
 
-        # Separator
+        # ── Separator ────────────────────────────────────────────────────
         from PyQt6.QtWidgets import QFrame
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #444;")
+        sep.setStyleSheet("background: #353535; border: none; max-height: 1px;")
         layout.addWidget(sep)
 
-        # Joint sliders section (for real-time control of variable joints)
-        self.sliders_group = QGroupBox("Joint Control")
-        self.sliders_group.setStyleSheet("QGroupBox { border: 1px solid #555; margin-top: 8px; padding-top: 12px; }")
-        self.sliders_layout = QVBoxLayout(self.sliders_group)
-        layout.addWidget(self.sliders_group)
+        # ── Joint sliders section ────────────────────────────────────────
+        lbl_ctrl = QLabel("JOINT CONTROL")
+        lbl_ctrl.setStyleSheet(_KCP_LABEL)
+        layout.addWidget(lbl_ctrl)
 
-        # End effector position readout
-        h_ee = QHBoxLayout()
-        self.lbl_ee = QLabel("End-Effector: X=0.000 Y=0.000 Z=0.000")
-        self.lbl_ee.setStyleSheet("font-family: monospace; color: #eee;")
-        h_ee.addWidget(self.lbl_ee)
-        layout.addLayout(h_ee)
+        self.sliders_container = QWidget()
+        self.sliders_container.setStyleSheet("background: transparent;")
+        self.sliders_layout = QVBoxLayout(self.sliders_container)
+        self.sliders_layout.setContentsMargins(0, 0, 0, 0)
+        self.sliders_layout.setSpacing(6)
+        layout.addWidget(self.sliders_container)
+        # keep group reference for compatibility
+        self.sliders_group = self.sliders_container
+
+        # ── End-effector readout ─────────────────────────────────────────
+        self.lbl_ee = QLabel("EE: X=0.000  Y=0.000  Z=0.000")
+        self.lbl_ee.setStyleSheet(_KCP_MONO)
+        layout.addWidget(self.lbl_ee)
 
     def _on_add_joint(self):
         joint_type = self.combo_new_type.currentText()
@@ -414,7 +519,7 @@ class KinematicChainPanel(QGroupBox):
 
     def _update_ee_label(self, pos):
         """Update end-effector position label."""
-        self.lbl_ee.setText(f"End-Effector: X={pos[0]:.3f} Y={pos[1]:.3f} Z={pos[2]:.3f}")
+        self.lbl_ee.setText(f"EE: X={pos[0]:+.3f}  Y={pos[1]:+.3f}  Z={pos[2]:+.3f}")
 
     def set_chain(self, chain: KinematicChain):
         """Replace the current chain (used for loading presets)."""

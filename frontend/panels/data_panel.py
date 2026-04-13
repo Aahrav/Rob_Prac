@@ -1,54 +1,77 @@
 #!/usr/bin/env python3
 """
-DataPanel - Displays live Roll, Pitch, Yaw values and packet rate.
+DataPanel - Displays live Roll, Pitch, Yaw values.
+Kinetic Obsidian theme: compact monospace readout card.
 """
 
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QGridLayout, QLabel, QFrame, QVBoxLayout
+from PyQt6.QtCore import Qt
 
 
-class DataPanel(QGroupBox):
-    """Panel for real-time sensor data readout."""
+CARD_STYLE = """
+    QWidget#data_card {
+        background-color: #0e0e0e;
+        border-radius: 4px;
+    }
+"""
+
+VAL_LABEL_STYLE = "color: #92ccff; font-family: 'Consolas', monospace; font-size: 13px; font-weight: 700;"
+KEY_LABEL_STYLE = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;"
+UNIT_LABEL_STYLE = "color: #3f4850; font-size: 10px;"
+
+
+class DataPanel(QWidget):
+    """Live joint angle / data readout panel."""
 
     def __init__(self, parent=None):
-        super().__init__("Data Readout", parent)
+        super().__init__(parent)
+        self._init_ui()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 12)
-        layout.setSpacing(8)
+    def _init_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        self.lbl_roll = QLabel("Roll: 0.0°")
-        self.lbl_pitch = QLabel("Pitch: 0.0°")
-        self.lbl_yaw = QLabel("Yaw: 0.0°")
-        self.lbl_rate = QLabel("Rate: 0 pps")
+        # Milled card container
+        card = QFrame()
+        card.setObjectName("data_card")
+        card.setStyleSheet("QFrame#data_card { background-color: #0e0e0e; border-radius: 4px; }")
+        grid = QGridLayout(card)
+        grid.setContentsMargins(10, 8, 10, 8)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
 
-        # Style
-        for lbl in [self.lbl_roll, self.lbl_pitch, self.lbl_yaw]:
-            lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #eee; padding: 4px;")
-            layout.addWidget(lbl)
+        def row(r, key, unit_text="°", attr_prefix=""):
+            lbl_key = QLabel(key)
+            lbl_key.setStyleSheet(KEY_LABEL_STYLE)
+            grid.addWidget(lbl_key, r, 0)
 
-        layout.addSpacing(6)
-        self.lbl_rate.setStyleSheet("font-size: 12px; color: #aaa; padding: 4px;")
-        layout.addWidget(self.lbl_rate)
+            lbl_val = QLabel("  0.0")
+            lbl_val.setStyleSheet(VAL_LABEL_STYLE)
+            lbl_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(lbl_val, r, 1)
 
-        self.setStyleSheet("""
-            QGroupBox {
-                border: 1px solid #444;
-                border-radius: 5px;
-                margin-top: 10px;
-                font-weight: bold;
-                padding: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+            lbl_unit = QLabel(unit_text)
+            lbl_unit.setStyleSheet(UNIT_LABEL_STYLE)
+            grid.addWidget(lbl_unit, r, 2)
+            return lbl_val
+
+        self.lbl_roll  = row(0, "ROLL",  "°")
+        self.lbl_pitch = row(1, "PITCH", "°")
+        self.lbl_yaw   = row(2, "YAW",   "°")
+
+        outer.addWidget(card)
 
     def update_values(self, roll: float, pitch: float, yaw: float, rate: float = None):
-        """Update displayed values."""
-        self.lbl_roll.setText(f"Roll: {roll:6.1f}°")
-        self.lbl_pitch.setText(f"Pitch: {pitch:6.1f}°")
-        self.lbl_yaw.setText(f"Yaw: {yaw:6.1f}°")
-        if rate is not None:
-            self.lbl_rate.setText(f"Rate: {rate:.0f} pps")
+        self.lbl_roll.setText(f"{roll:+7.1f}")
+        self.lbl_pitch.setText(f"{pitch:+7.1f}")
+        self.lbl_yaw.setText(f"{yaw:+7.1f}")
+        # Color-code by magnitude
+        for val, lbl in [(abs(roll), self.lbl_roll), (abs(pitch), self.lbl_pitch), (abs(yaw), self.lbl_yaw)]:
+            if val > 60:
+                color = "#ffba4b"
+            elif val > 30:
+                color = "#92ccff"
+            else:
+                color = "#abcae8"
+            lbl.setStyleSheet(VAL_LABEL_STYLE.replace("#92ccff", color))

@@ -1,443 +1,689 @@
 #!/usr/bin/env python3
 """
-MainWindow for the simulation application.
-Holds the left panel (controls) and right panel (3D visualization).
+MainWindow — Robotic Arm Simulation.
+Kinetic Obsidian dark engineering theme (Stitch "Kinetic Monolith" design system).
 """
 
 import sys
-from PyQt6.QtWidgets import QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QCheckBox, QGroupBox, QButtonGroup, QRadioButton, QScrollArea
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
+                              QHBoxLayout, QLabel, QPushButton, QCheckBox,
+                              QButtonGroup, QRadioButton, QScrollArea,
+                              QStatusBar, QFrame, QSizePolicy)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont, QFontDatabase, QColor
 
-# Panels will be imported when needed to avoid circular dependencies
-# from frontend.panels.connection_panel import ConnectionPanel
-# from frontend.panels.data_panel import DataPanel
-# from frontend.panels.arm_canvas import ArmCanvas
-
-# Backend kinematics (used in draw updates)
 from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof, KinematicChain
-
-# Panels
 from frontend.panels.robot_config_panel import RobotConfigPanel
 from frontend.panels.kinematic_chain_panel import KinematicChainPanel
 from frontend.panels.accordion_section import AccordionSection
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Global dark engineering stylesheet  (Kinetic Obsidian)
+# ═══════════════════════════════════════════════════════════════════════════════
+GLOBAL_QSS = """
+/* ── Base ─────────────────────────────────────────────────────────────── */
+QMainWindow, QWidget {
+    background-color: #131313;
+    color: #e5e2e1;
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
+    font-size: 11px;
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────── */
+QScrollBar:vertical {
+    background: #131313;
+    width: 8px;
+    margin: 0;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: #353535;
+    border-radius: 4px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: #454548; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+QScrollBar:horizontal {
+    background: #131313;
+    height: 6px;
+    border: none;
+}
+QScrollBar::handle:horizontal { background: #353535; border-radius: 3px; }
+
+/* ── Splitter ─────────────────────────────────────────────────────────── */
+QSplitter::handle { background-color: #0e0e0e; width: 2px; }
+QSplitter::handle:horizontal { width: 2px; }
+
+/* ── Tooltips ─────────────────────────────────────────────────────────── */
+QToolTip {
+    background-color: #202020;
+    color: #e5e2e1;
+    border: 1px solid #353535;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+/* ── Status bar ───────────────────────────────────────────────────────── */
+QStatusBar {
+    background-color: #0e0e0e;
+    color: #89929b;
+    border-top: 1px solid #1a1a1a;
+    font-size: 10px;
+}
+QStatusBar::item { border: none; }
+
+/* ── Menu bar ─────────────────────────────────────────────────────────── */
+QMenuBar {
+    background-color: #0e0e0e;
+    color: #bfc7d2;
+    border-bottom: 1px solid #1a1a1a;
+    padding: 2px 0;
+}
+QMenuBar::item:selected { background-color: #202020; color: #e5e2e1; }
+QMenu {
+    background-color: #202020;
+    color: #e5e2e1;
+    border: 1px solid #353535;
+    border-radius: 4px;
+}
+QMenu::item:selected { background-color: #3498db; color: #ffffff; }
+QMenu::separator { background-color: #353535; height: 1px; margin: 4px 8px; }
+
+/* ── Checkboxes ───────────────────────────────────────────────────────── */
+QCheckBox { color: #bfc7d2; spacing: 6px; }
+QCheckBox::indicator {
+    width: 14px; height: 14px;
+    border: 1px solid #353535;
+    border-radius: 3px;
+    background: #0e0e0e;
+}
+QCheckBox::indicator:checked { background: #3498db; border-color: #3498db; }
+
+/* ── Radio Buttons ────────────────────────────────────────────────────── */
+QRadioButton { color: #bfc7d2; spacing: 6px; }
+QRadioButton::indicator {
+    width: 14px; height: 14px;
+    border: 1px solid #353535;
+    border-radius: 7px;
+    background: #0e0e0e;
+}
+QRadioButton::indicator:checked { background: #3498db; border-color: #92ccff; }
+
+/* ── Message boxes ────────────────────────────────────────────────────── */
+QMessageBox { background-color: #202020; }
+QMessageBox QPushButton {
+    background-color: #353535; color: #e5e2e1;
+    border: none; border-radius: 4px;
+    padding: 6px 16px; min-width: 80px;
+}
+QMessageBox QPushButton:hover { background-color: #454548; }
+"""
+
+# ── Toolbar button style ───────────────────────────────────────────────────
+TOOLBAR_BTN = """
+    QPushButton {
+        background-color: #202020;
+        color: #89929b;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 12px;
+        font-size: 10px;
+        font-weight: 500;
+        min-height: 26px;
+    }
+    QPushButton:hover { background-color: #2a2a2a; color: #e5e2e1; }
+    QPushButton:pressed { background-color: #131313; }
+    QPushButton:checked { background-color: #3498db; color: #ffffff; }
+"""
+
+TOOLBAR_BTN_RESET = """
+    QPushButton {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #3498db, stop:1 #2980b9);
+        color: #ffffff;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 14px;
+        font-size: 10px;
+        font-weight: 600;
+        min-height: 26px;
+    }
+    QPushButton:hover { background-color: #2980b9; }
+"""
+
+MODE_PILL_ACTIVE = """
+    QPushButton {
+        background-color: #353535;
+        color: #92ccff;
+        border: 1px solid #3498db;
+        border-radius: 4px;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 26px;
+    }
+"""
+
+MODE_PILL_INACTIVE = """
+    QPushButton {
+        background-color: #131313;
+        color: #89929b;
+        border: 1px solid #353535;
+        border-radius: 4px;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-weight: 500;
+        min-height: 26px;
+    }
+    QPushButton:hover { background-color: #202020; color: #bfc7d2; border-color: #454548; }
+"""
+
+
 class MainWindow(QMainWindow):
-    """Main application window with two-panel layout."""
+    """Main application window — Kinetic Obsidian split-panel layout."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AppName - Robotic Arm Simulation")
-        self.resize(1200, 800)
+        self.setWindowTitle("RoboSim — Robotic Arm Simulation")
+        self.resize(1400, 900)
+        self.setMinimumSize(1100, 650)
 
-        # Central widget with splitter for resizable panels
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Apply global stylesheet
+        self.setStyleSheet(GLOBAL_QSS)
 
-        # Header with app name
-        header = QLabel("AppName — Real-Time Simulation")
-        header.setStyleSheet("font-size: 14px; font-weight: bold; padding: 8px; background-color: #252526; color: #ddd;")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(header)
+        # ── Shared state ──────────────────────────────────────────────────
+        self.kinematics_config = ArmConfig()
+        self.current_angles = [0.0, 0.0, 0.0]
+        self.mode = 'standard'
+        self.simulator = None
+        self.interactive_controller = None
 
-        # Splitter for left/right panels
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # ── Central widget ────────────────────────────────────────────────
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # Left panel container with scroll area
+        # ── Title bar ─────────────────────────────────────────────────────
+        title_bar = self._make_title_bar()
+        root.addWidget(title_bar)
+
+        # ── Splitter ──────────────────────────────────────────────────────
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setHandleWidth(2)
+
+        # LEFT sidebar
         self.left_scroll = QScrollArea()
         self.left_scroll.setWidgetResizable(True)
         self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.left_scroll.setStyleSheet("QScrollArea { border: none; background-color: #1e1e1e; }")
+        self.left_scroll.setStyleSheet("QScrollArea { border: none; background-color: #131313; }")
 
-        # Content widget inside scroll area
         self.left_content = QWidget()
-        left_layout = QVBoxLayout(self.left_content)
-        left_layout.setContentsMargins(10, 10, 10, 10)
-        left_layout.setSpacing(12)
-        self.left_content.setStyleSheet("background-color: #1e1e1e;")
-        self.left_content.setMinimumWidth(300)  # ensure content has intrinsic width
+        self.left_content.setStyleSheet("background-color: #131313;")
+        self.left_content.setMinimumWidth(280)
+        self.left_layout = QVBoxLayout(self.left_content)
+        self.left_layout.setContentsMargins(0, 0, 0, 0)
+        self.left_layout.setSpacing(0)
         self.left_scroll.setWidget(self.left_content)
-        self.left_layout = left_layout  # keep reference to add panels
 
-        # Right panel container
+        # RIGHT panel
         self.right_panel = QWidget()
+        self.right_panel.setStyleSheet("background-color: #131313;")
         self.right_layout = QVBoxLayout(self.right_panel)
         self.right_layout.setContentsMargins(0, 0, 0, 0)
-        self.right_panel.setStyleSheet("background-color: #2d2d2d;")
+        self.right_layout.setSpacing(0)
 
-        splitter.addWidget(self.left_scroll)
-        splitter.addWidget(self.right_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        self.splitter.addWidget(self.left_scroll)
+        self.splitter.addWidget(self.right_panel)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([340, 1060])
 
-        layout.addWidget(splitter, 1)
+        root.addWidget(self.splitter, 1)
 
-        # Set initial splitter sizes (left ~30%, right ~70%)
-        splitter.setSizes([360, 840])
+        # ── Status bar ────────────────────────────────────────────────────
+        self._setup_status_bar()
 
-        # Set a reasonable default window size
-        self.resize(1200, 800)
-        self.setMinimumSize(1000, 600)
+        # ── Build panels ──────────────────────────────────────────────────
+        self._build_left_panel()
+        self._setup_right_panel()
 
-        # Status bar
-        self.status_bar = self.statusBar()
-        self.status_bar.showMessage("Disconnected")
+    # ═══════════════════════════════════════════════════════════════════════
+    #  UI Construction
+    # ═══════════════════════════════════════════════════════════════════════
 
-        # Apply dark theme to the whole app
-        self.setStyleSheet("""
-            QMainWindow { background-color: #1e1e1e; }
-            QWidget { color: #eee; font-family: Segoe UI, Arial; font-size: 9pt; }
-            QScrollBar { background: #333; }
-            QScrollBar::handle { background: #555; border-radius: 3px; }
+    def _make_title_bar(self):
+        bar = QFrame()
+        bar.setFixedHeight(46)
+        bar.setStyleSheet("""
+            QFrame {
+                background-color: #0e0e0e;
+                border-bottom: 1px solid #1a1a1a;
+            }
         """)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(16, 0, 16, 0)
+        layout.setSpacing(12)
 
-        # Shared kinematics configuration (mutable)
-        self.kinematics_config = ArmConfig()
-        self.current_angles = [0.0, 0.0, 0.0]  # for standard mode FK
-        self.mode = 'standard'  # 'standard' (3-DOF) or 'custom' (DH chain)
+        # App icon placeholder
+        icon_lbl = QLabel("⚙")
+        icon_lbl.setStyleSheet("color: #3498db; font-size: 18px; font-weight: 700;")
+        layout.addWidget(icon_lbl)
 
-        # === ACCORDION LAYOUT ===
-        # 1. Mode & Simulation Control section
-        self.section_mode = AccordionSection("Mode & Simulation Control")
-        mode_layout = QVBoxLayout()
-        mode_layout.setContentsMargins(8, 8, 8, 8)
-        mode_layout.setSpacing(8)
+        app_name = QLabel("RoboSim")
+        app_name.setStyleSheet("color: #e5e2e1; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;")
+        layout.addWidget(app_name)
 
-        # Mode radio buttons
-        self.mode_group = QButtonGroup(self)
-        self.radio_standard = QRadioButton("Standard 3-DOF")
-        self.radio_custom = QRadioButton("Custom DH")
-        self.mode_group.addButton(self.radio_standard)
-        self.mode_group.addButton(self.radio_custom)
-        self.radio_standard.setChecked(True)
-        self.radio_standard.toggled.connect(self._on_mode_toggled)
-        self.radio_custom.toggled.connect(self._on_mode_toggled)
-        mode_layout.addWidget(self.radio_standard)
-        mode_layout.addWidget(self.radio_custom)
+        subtitle = QLabel("Robotic Arm Simulation")
+        subtitle.setStyleSheet("color: #3f4850; font-size: 11px;")
+        layout.addWidget(subtitle)
 
-        # Connection panel
+        layout.addStretch()
+
+        # Mode toggle pills (Standard 3-DOF | Custom DH)
+        mode_lbl = QLabel("MODE:")
+        mode_lbl.setStyleSheet("color: #3f4850; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;")
+        layout.addWidget(mode_lbl)
+
+        self.btn_standard = QPushButton("Standard 3-DOF")
+        self.btn_standard.setStyleSheet(MODE_PILL_ACTIVE)
+        self.btn_standard.clicked.connect(lambda: self._set_robot_mode('standard'))
+        layout.addWidget(self.btn_standard)
+
+        self.btn_custom = QPushButton("Custom DH")
+        self.btn_custom.setStyleSheet(MODE_PILL_INACTIVE)
+        self.btn_custom.clicked.connect(lambda: self._set_robot_mode('custom'))
+        layout.addWidget(self.btn_custom)
+
+        return bar
+
+    def _setup_status_bar(self):
+        """3-zone status bar."""
+        sb = self.statusBar()
+        sb.setSizeGripEnabled(False)
+
+        # Zone 1: mode indicator
+        self.sb_mode = QLabel("●  Standard 3-DOF  |  Disconnected")
+        self.sb_mode.setStyleSheet("color: #e74c3c; padding: 0 12px; font-size: 10px;")
+        sb.addWidget(self.sb_mode)
+
+        # Zone 2: message (permanent, center)
+        self.sb_message = QLabel("Ready")
+        self.sb_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sb_message.setStyleSheet("color: #89929b; font-size: 10px;")
+        sb.addWidget(self.sb_message, 1)
+
+        # Zone 3: EE position
+        self.sb_ee = QLabel("EE: (—, —, —)")
+        self.sb_ee.setStyleSheet("color: #3f4850; padding: 0 12px; font-size: 10px;")
+        sb.addPermanentWidget(self.sb_ee)
+
+    def _build_left_panel(self):
+        """Build all accordion sections in the left sidebar."""
+
+        # ── SECTION 1: Mode & Connection ──────────────────────────────────
+        self.section_mode = AccordionSection("Mode & Connection")
+
         from frontend.panels.connection_panel import ConnectionPanel
         self.connection_panel = ConnectionPanel()
         self.connection_panel.connect_requested.connect(self._on_connect_requested)
         self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
         self.connection_panel.mode_changed.connect(self._on_mode_changed)
-        mode_layout.addWidget(self.connection_panel)
 
-        mode_layout.addStretch()
+        mode_layout = QVBoxLayout()
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(8)
+        mode_layout.addWidget(self.connection_panel)
         self.section_mode.setContentLayout(mode_layout)
         self.left_layout.addWidget(self.section_mode)
 
-        # 2. Robot Parameters section
+        # ── SECTION 2: Robot Parameters ───────────────────────────────────
         self.section_robot_params = AccordionSection("Robot Parameters")
         self.robot_config_panel = RobotConfigPanel(self.kinematics_config)
         self.robot_config_panel.config_changed.connect(self._on_robot_config_changed)
-        # Data panel for real-time angle display
+
         from frontend.panels.data_panel import DataPanel
         self.data_panel = DataPanel()
+
         params_layout = QVBoxLayout()
+        params_layout.setContentsMargins(0, 0, 0, 0)
+        params_layout.setSpacing(10)
         params_layout.addWidget(self.robot_config_panel)
-        params_layout.addSpacing(8)
+
+        # Joint angles sub-label
+        lbl_joints = QLabel("JOINT ANGLES")
+        lbl_joints.setStyleSheet("color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;")
+        params_layout.addWidget(lbl_joints)
         params_layout.addWidget(self.data_panel)
-        params_layout.addStretch()
+
         self.section_robot_params.setContentLayout(params_layout)
         self.left_layout.addWidget(self.section_robot_params)
 
-        # 3. Robot Structure (DH) section (hidden by default)
-        self.section_chain = AccordionSection("Robot Structure (DH)")
+        # ── SECTION 3: Robot Structure (Custom DH) ────────────────────────
+        self.section_chain = AccordionSection("Kinematic Chain")
         self.chain_panel = KinematicChainPanel()
         self.chain_panel.chain_updated.connect(self._on_chain_updated)
         self.chain_panel.end_effector_updated.connect(self._on_ee_updated)
+
         chain_layout = QVBoxLayout()
+        chain_layout.setContentsMargins(0, 0, 0, 0)
         chain_layout.addWidget(self.chain_panel)
-        chain_layout.addStretch()
         self.section_chain.setContentLayout(chain_layout)
         self.section_chain.setVisible(False)
         self.left_layout.addWidget(self.section_chain)
 
-        # 4. Trajectory / Motion Control section
-        self.section_joint_control = AccordionSection("Trajectory / Motion Control")
-        joint_layout = QVBoxLayout()
-        joint_layout.setContentsMargins(0, 0, 0, 0)
-        # Trajectory panel for Cartesian control (standard mode)
+        # ── SECTION 4: Trajectory Control ─────────────────────────────────
+        self.section_joint_control = AccordionSection("Trajectory Control")
+
         from frontend.panels.trajectory_panel import TrajectoryPanel
         self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
+
+        joint_layout = QVBoxLayout()
+        joint_layout.setContentsMargins(0, 0, 0, 0)
         joint_layout.addWidget(self.trajectory_panel)
-        joint_layout.addStretch()
         self.section_joint_control.setContentLayout(joint_layout)
         self.left_layout.addWidget(self.section_joint_control)
 
-        # 5. End Effector section (read-only)
+        # ── SECTION 5: End-Effector ───────────────────────────────────────
         self.section_ee = AccordionSection("End Effector")
-        ee_layout = QVBoxLayout()
-        ee_layout.setContentsMargins(8, 8, 8, 8)
-        ee_layout.setSpacing(8)
-        self.lbl_ee_status = QLabel("End-effector position will appear here.")
-        self.lbl_ee_status.setStyleSheet("color: #aaa; font-family: monospace; font-size: 11px; padding: 8px; background: #252526; border-radius: 4px;")
+
+        # EE info card
+        ee_card = QFrame()
+        ee_card.setStyleSheet("""
+            QFrame {
+                background-color: #0e0e0e;
+                border-radius: 4px;
+                border-left: 2px solid #3498db;
+            }
+        """)
+        ee_card_layout = QVBoxLayout(ee_card)
+        ee_card_layout.setContentsMargins(10, 8, 10, 8)
+        ee_card_layout.setSpacing(4)
+
+        self.lbl_ee_status = QLabel("— awaiting data —")
+        self.lbl_ee_status.setStyleSheet(
+            "color: #89929b; font-family: 'Consolas', monospace; font-size: 12px;"
+        )
         self.lbl_ee_status.setWordWrap(True)
-        ee_layout.addWidget(self.lbl_ee_status)
-        ee_layout.addStretch()
+        ee_card_layout.addWidget(self.lbl_ee_status)
+
+        ee_layout = QVBoxLayout()
+        ee_layout.setContentsMargins(0, 0, 0, 0)
+        ee_layout.addWidget(ee_card)
         self.section_ee.setContentLayout(ee_layout)
         self.left_layout.addWidget(self.section_ee)
 
         self.left_layout.addStretch()
 
-        # Setup right panel
-        self._setup_right_panel()
-
     def _setup_right_panel(self):
-        """Create the right panel: view toolbar + 3D canvas."""
+        """Camera toolbar + 3D canvas."""
         from frontend.panels.arm_canvas import ArmCanvas
 
-        # Right panel: toolbar + canvas
-        view_toolbar = QWidget()
-        view_toolbar.setMaximumHeight(36)
-        view_toolbar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #444;")
-        toolbar_layout = QHBoxLayout(view_toolbar)
-        toolbar_layout.setContentsMargins(10, 4, 10, 4)
-        toolbar_layout.setSpacing(6)
-
-        btn_style = """
-            QPushButton { background-color: #444; color: #ddd; padding: 4px 10px; border: 1px solid #555; border-radius: 4px; font-size: 10px; }
-            QPushButton:hover { background-color: #555; border-color: #666; }
-            QPushButton:pressed { background-color: #333; }
-        """
-        for name, label in [('front','Front'), ('side','Side'), ('top','Top'), ('iso','Iso'), ('back','Back')]:
-            btn = QPushButton(label)
-            btn.setStyleSheet(btn_style)
-            btn.clicked.connect(lambda checked, n=name: self._set_view_preset(n))
-            toolbar_layout.addWidget(btn)
-
-        toolbar_layout.addSpacing(12)
-
-        self.chk_ground = QCheckBox("Show Ground")
-        self.chk_ground.setChecked(True)
-        self.chk_ground.setStyleSheet("color: #ddd; font-size: 10px;")
-        self.chk_ground.toggled.connect(self._toggle_ground)
-        toolbar_layout.addWidget(self.chk_ground)
-
-        toolbar_layout.addSpacing(8)
-
-        self.btn_reset_view = QPushButton("Reset")
-        self.btn_reset_view.setStyleSheet("""
-            QPushButton { background-color: #3498db; color: white; padding: 4px 12px; border: 1px solid #2980b9; border-radius: 4px; font-size: 10px; font-weight: bold; }
-            QPushButton:hover { background-color: #2980b9; }
+        # ── Viewport toolbar ───────────────────────────────────────────────
+        toolbar = QFrame()
+        toolbar.setFixedHeight(42)
+        toolbar.setStyleSheet("""
+            QFrame {
+                background-color: #0e0e0e;
+                border-bottom: 1px solid #1a1a1a;
+            }
         """)
+        tb_layout = QHBoxLayout(toolbar)
+        tb_layout.setContentsMargins(12, 0, 12, 0)
+        tb_layout.setSpacing(6)
+
+        # Camera label
+        cam_lbl = QLabel("CAMERA:")
+        cam_lbl.setStyleSheet("color: #3f4850; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;")
+        tb_layout.addWidget(cam_lbl)
+
+        # View preset buttons
+        for name, label in [('iso', 'Iso'), ('front', 'Front'), ('side', 'Side'), ('top', 'Top'), ('back', 'Back')]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(TOOLBAR_BTN)
+            btn.clicked.connect(lambda checked, n=name: self._set_view_preset(n))
+            tb_layout.addWidget(btn)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color: #353535; background: #353535; border: none; max-width: 1px;")
+        tb_layout.addWidget(sep)
+
+        # Ground toggle
+        self.chk_ground = QCheckBox("Ground")
+        self.chk_ground.setChecked(True)
+        self.chk_ground.setStyleSheet("color: #bfc7d2; font-size: 10px; spacing: 5px;")
+        self.chk_ground.toggled.connect(self._toggle_ground)
+        tb_layout.addWidget(self.chk_ground)
+
+        tb_layout.addSeparator = lambda: None  # dummy for spacing
+        tb_layout.addStretch()
+
+        # Reset view button
+        self.btn_reset_view = QPushButton("⟳  Reset View")
+        self.btn_reset_view.setStyleSheet(TOOLBAR_BTN_RESET)
         self.btn_reset_view.clicked.connect(self._reset_view)
-        toolbar_layout.addWidget(self.btn_reset_view)
+        tb_layout.addWidget(self.btn_reset_view)
 
-        toolbar_layout.addStretch()
-        self.right_layout.addWidget(view_toolbar)
+        self.right_layout.addWidget(toolbar)
 
-        # 3D canvas
+        # ── 3D Canvas ─────────────────────────────────────────────────────
         self.arm_canvas = ArmCanvas()
         self.arm_canvas.config = self.kinematics_config
         self.arm_canvas.setMinimumSize(600, 500)
-        self.right_layout.addWidget(self.arm_canvas, stretch=3)
+        self.right_layout.addWidget(self.arm_canvas, stretch=1)
 
-        # Connections
-        self.simulator = None
-        self.interactive_controller = None
+        # ── Wire up remaining connections ──────────────────────────────────
         self.connection_panel.connect_requested.connect(self._on_connect_requested)
         self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
         self.connection_panel.mode_changed.connect(self._on_mode_changed)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
         self._on_robot_config_changed(self.kinematics_config)
-        # Set initial visibility based on default mode/connection state
         self._update_panel_visibility()
 
-    def _on_mode_changed(self, mode: str):
-        """Show/hide panels based on connection mode."""
-        # Let _update_panel_visibility handle all visibility based on current mode + connection mode
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Mode management
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _set_robot_mode(self, mode: str):
+        """Switch between 'standard' and 'custom' robot modes."""
+        if mode == self.mode:
+            return
+        self.mode = mode
+
+        if mode == 'standard':
+            self.btn_standard.setStyleSheet(MODE_PILL_ACTIVE)
+            self.btn_custom.setStyleSheet(MODE_PILL_INACTIVE)
+        else:
+            self.btn_standard.setStyleSheet(MODE_PILL_INACTIVE)
+            self.btn_custom.setStyleSheet(MODE_PILL_ACTIVE)
+
         self._update_panel_visibility()
-        # Configure TrajectoryPanel to use appropriate IK method
         self._configure_trajectory_panel_mode()
-        # Clear lingering focus and repaint to prevent visually stuck elements
-        self.connection_panel.mode_combo.clearFocus()
+        self._update_view_for_robot()
+        self._refresh_arm_display()
+        self._update_status_bar_mode()
         self.centralWidget().repaint()
 
+    def _on_mode_changed(self, mode: str):
+        """Connection mode changed (simulation/interactive)."""
+        self._update_panel_visibility()
+        self._configure_trajectory_panel_mode()
+        try:
+            self.connection_panel.mode_combo.clearFocus()
+        except Exception:
+            pass
+        self._update_status_bar_mode()
+        self.centralWidget().repaint()
+
+    def _update_panel_visibility(self):
+        if self.mode == 'standard':
+            self.section_robot_params.setVisible(True)
+            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
+            self.section_joint_control.setVisible(is_interactive)
+            self.section_chain.setVisible(False)
+        else:
+            self.section_robot_params.setVisible(False)
+            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
+            self.section_joint_control.setVisible(is_interactive)
+            self.section_chain.setVisible(True)
+
+    def _update_status_bar_mode(self):
+        robot_mode = "Standard 3-DOF" if self.mode == 'standard' else "Custom DH"
+        conn_mode = self.connection_panel._current_mode
+        is_connected = self.connection_panel.is_connected
+        color = "#2ecc71" if is_connected else "#e74c3c"
+        dot = "●"
+        self.sb_mode.setText(f"{dot}  {robot_mode}  |  {conn_mode}")
+        self.sb_mode.setStyleSheet(f"color: {color}; padding: 0 12px; font-size: 10px;")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Connection logic (preserved from original)
+    # ═══════════════════════════════════════════════════════════════════════
+
     def _on_connect_requested(self, port: str, baud: int):
-        """Handle connection request."""
-        # Stop any existing mode first
         self._stop_current_mode()
         if port == "INTERACTIVE":
             self._start_interactive()
         elif port == "SIMULATED (no hardware)":
             self._start_simulation()
         else:
-            # Real serial not implemented yet
-            self.connection_panel.set_status(f"Real serial not implemented yet: {port}")
+            self.connection_panel.set_status(f"Real serial not yet implemented: {port}")
             self.connection_panel.set_connected(False)
+        self._update_status_bar_mode()
 
     def _on_disconnect_requested(self):
-        """Handle disconnect."""
         self._stop_current_mode()
         self.connection_panel.set_connected(False)
         self.connection_panel.set_status("Disconnected")
+        self.sb_message.setText("Disconnected")
+        self._update_status_bar_mode()
 
     def _start_simulation(self):
-        """Start simulated data generation."""
-        from PyQt6.QtCore import QTimer, QObject, pyqtSignal
         import numpy as np
+        from PyQt6.QtCore import QObject, pyqtSignal as Signal
 
         class Simulator(QObject):
-            data_updated = pyqtSignal(float, float, float)
+            data_updated = Signal(float, float, float)
+
             def __init__(self, parent=None):
                 super().__init__(parent)
                 self.t = 0.0
                 self.timer = QTimer(parent)
                 self.timer.timeout.connect(self._update)
-                self.interval = 50
 
             def start(self):
-                self.timer.start(self.interval)
+                self.timer.start(50)
 
             def stop(self):
                 self.timer.stop()
 
             def _update(self):
                 self.t += 0.05
-                roll = 20 * np.sin(self.t * 0.5)
-                pitch = 15 * np.sin(self.t * 0.7 + 1)
-                yaw = 30 * np.sin(self.t * 0.3 + 2)
-                self.data_updated.emit(roll, pitch, yaw)
+                self.data_updated.emit(
+                    20 * np.sin(self.t * 0.5),
+                    15 * np.sin(self.t * 0.7 + 1),
+                    30 * np.sin(self.t * 0.3 + 2),
+                )
 
         self.simulator = Simulator(self)
         self.simulator.data_updated.connect(self._on_data_received)
         self.simulator.start()
         self.connection_panel.set_connected(True)
-        self.status_bar.showMessage("Simulation mode active")
         self.connection_panel.set_status("Simulation running")
+        self.sb_message.setText("Simulation mode active")
 
     def _start_interactive(self):
-        """Start interactive mode - target angles from trajectory panel."""
-
-        self.interactive_controller = type('InteractiveCtrl', (), {
-            'active': True,
-            'target': [0.0, 0.0, 0.0]
-        })  # simple namespace
+        self.interactive_controller = type('IC', (), {'active': True, 'target': [0.0, 0.0, 0.0]})()
         self.connection_panel.set_connected(True)
-        self.status_bar.showMessage("Interactive mode active")
-        self.connection_panel.set_status("Use sliders to set target")
-        # Do NOT move the arm automatically; wait for user input
+        self.connection_panel.set_status("Interactive — use sliders")
+        self.sb_message.setText("Interactive mode active")
 
     def _stop_current_mode(self):
-        """Stop whichever mode is running."""
         if self.simulator:
             self.simulator.stop()
             self.simulator = None
         if self.interactive_controller:
             self.interactive_controller.active = False
             self.interactive_controller = None
-        # Stop any ongoing animation in TrajectoryPanel (if present and animating)
         if hasattr(self, 'trajectory_panel') and getattr(self.trajectory_panel, 'animating', False):
-            # Use internal stop to reset UI (safe since we own TrajectoryPanel)
             self.trajectory_panel._stop_clicked()
         self.arm_canvas._init_empty_plot()
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Data / kinematics handlers (preserved)
+    # ═══════════════════════════════════════════════════════════════════════
+
     def _on_data_received(self, roll: float, pitch: float, yaw: float):
-        """Update UI with data (from simulation or real source)."""
         self.data_panel.update_values(roll, pitch, yaw)
         self.trajectory_panel.set_current_angles(roll, pitch, yaw)
-        # Store current angles for standard mode
         self.current_angles = [roll, pitch, yaw]
         positions = compute_arm_positions(roll, pitch, yaw, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
 
     def _on_target_angles(self, q1: float, q2: float, q3: float):
-        """Handle target angles from trajectory panel (interactive mode)."""
         if self.interactive_controller and self.interactive_controller.active:
-            # Always update DataPanel
             self.data_panel.update_values(q1, q2, q3)
             if self.mode == 'standard':
                 self._apply_target_angles(q1, q2, q3)
-            else:  # custom
-                # Apply angles to the first three variable joints in the chain
+            else:
                 chain = self.chain_panel.chain
                 count = 0
                 for joint in chain.joints:
                     if joint.type == 'revolute':
-                        if count == 0:
-                            joint.theta = q1
-                        elif count == 1:
-                            joint.theta = q2
-                        elif count == 2:
-                            joint.theta = q3
+                        if count == 0: joint.theta = q1
+                        elif count == 1: joint.theta = q2
+                        elif count == 2: joint.theta = q3
                         count += 1
                     if count >= 3:
                         break
-                # Keep trajectory panel's current angles in sync
                 self.trajectory_panel.set_current_angles(q1, q2, q3)
-                # Update chain panel's end-effector label
                 self.chain_panel._compute_and_emit_fk()
-                # Redraw arm using chain
                 self._refresh_arm_display()
 
     def _apply_target_angles(self, q1: float, q2: float, q3: float):
-        """Apply target joint angles to arm (3-DOF)."""
-        # Update DataPanel
         self.data_panel.update_values(q1, q2, q3)
-        # Store current angles for standard mode redraw
         self.current_angles = [q1, q2, q3]
-        # Compute forward kinematics
         positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
-        # Update End Effector display
         tip = positions[-1]
-        self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
-        # Keep trajectory panel in sync
+        self._update_ee_display(tip[0], tip[1], tip[2])
         self.trajectory_panel.set_current_angles(q1, q2, q3)
 
-    def _update_play_button(self):
-        """Enable Play button only if at least 2 waypoints exist."""
-        waypoints = self.waypoint_panel.get_waypoints()
-        self.btn_play.setEnabled(len(waypoints) >= 2)
-
-    def _clear_trace(self):
-        """Clear the trajectory trace from the canvas."""
-        self.arm_canvas.set_trajectory([])
-        self.status_bar.showMessage("Trace cleared")
-
-    def _reset_view(self):
-        """Reset 3D camera to optimal framed isometric view."""
-        self._update_view_for_robot()
-        self.arm_canvas.set_view(name='iso')
-        self.status_bar.showMessage("View reset to Isometric (framed)")
-
-    def _set_view_preset(self, name):
-        """Set camera to a preset view."""
-        if hasattr(self.arm_canvas, 'set_view'):
-            self.arm_canvas.set_view(name=name)
-            view_names = {'front':'Front', 'side':'Side', 'top':'Top', 'iso':'Isometric', 'back':'Back'}
-            self.status_bar.showMessage(f"View: {view_names.get(name, name)}")
+    def _update_ee_display(self, x, y, z):
+        self.lbl_ee_status.setText(
+            f"<span style='color:#92ccff;'>X</span> {x:+.4f} m\n"
+            f"<span style='color:#2ecc71;'>Y</span> {y:+.4f} m\n"
+            f"<span style='color:#ffba4b;'>Z</span> {z:+.4f} m"
+        )
+        self.sb_ee.setText(f"EE: ({x:.3f}, {y:.3f}, {z:.3f})")
 
     def _on_robot_config_changed(self, config):
-        """Handle updates to robot geometry parameters."""
         self.kinematics_config = config
         max_reach = config.upper_arm_length + config.lower_arm_length + config.gripper_offset
-        # Update workspace boundary circle
         self.arm_canvas.update_workspace_boundary(max_reach)
-        # Update TrajectoryPanel ranges and clamp target
         self.trajectory_panel.update_config(config)
-        # Recompute IK for current target (XYZ) with new config
         x, y, z = self.trajectory_panel.current_pos
         result = inverse_kinematics_3dof(x, y, z, config=config, elbow_down=True)
         if result:
             q1, q2, q3 = result
             self._apply_target_angles(q1, q2, q3)
         else:
-            self.status_bar.showMessage("Current target unreachable with new dimensions", 3000)
+            self.sb_message.setText("Current target unreachable with new dimensions")
         self._update_view_for_robot()
 
     def _configure_trajectory_panel_mode(self):
-        """Configure TrajectoryPanel to use standard 3-DOF IK or custom chain IK."""
         if self.mode == 'custom':
             self.trajectory_panel.use_custom_chain = True
             self.trajectory_panel.chain = self.chain_panel.chain
-            # Sync current angles from chain's first three variable joints
             angles = []
             for joint in self.chain_panel.chain.joints:
                 if joint.type == 'revolute':
@@ -451,60 +697,24 @@ class MainWindow(QMainWindow):
         else:
             self.trajectory_panel.use_custom_chain = False
             self.trajectory_panel.chain = None
-        # Update slider ranges to match current machine geometry
         self.trajectory_panel.update_workspace_ranges()
 
     def _update_view_for_robot(self):
-        """Adjust the 3D camera to frame the current robot geometry."""
         if self.mode == 'standard':
             cfg = self.kinematics_config
             max_xy = cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
             max_z = cfg.base_height + cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
             base_h = cfg.base_height
-        else:  # custom
+        else:
             chain = self.chain_panel.chain
             max_xy = sum(joint.a for joint in chain.joints)
             max_z = chain.base_height + max_xy
             base_h = chain.base_height
         self.arm_canvas.frame_to_fit_robot(max_xy, max_z, base_h)
 
-    def _on_mode_toggled(self, checked):
-        """Handle switching between Standard 3-DOF and Custom DH modes."""
-        if not checked:
-            return
-        if self.radio_standard.isChecked():
-            self.mode = 'standard'
-        else:
-            self.mode = 'custom'
-        self._update_panel_visibility()
-        self._configure_trajectory_panel_mode()
-        self._update_view_for_robot()
-        self._refresh_arm_display()
-        # Clear lingering focus and force repaint
-        self.radio_standard.clearFocus()
-        self.radio_custom.clearFocus()
-        self.centralWidget().repaint()
-
-    def _update_panel_visibility(self):
-        """Update visibility of accordion sections based on mode and connection."""
-        if self.mode == 'standard':
-            self.section_robot_params.setVisible(True)
-            # Show Trajectory/Motion Control section only in Interactive mode
-            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
-            self.section_joint_control.setVisible(is_interactive)
-            self.section_chain.setVisible(False)
-        else:  # custom
-            self.section_robot_params.setVisible(False)
-            # Show Trajectory/Motion Control section only in Interactive mode (parity with standard)
-            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
-            self.section_joint_control.setVisible(is_interactive)
-            self.section_chain.setVisible(True)
-
     def _on_chain_updated(self, chain):
-        """Handle updates to the kinematic chain."""
         if self.mode == 'custom':
             self._refresh_arm_display()
-            # Sync TrajectoryPanel's current angles with the chain's first three variable joints
             angles = []
             for joint in chain.joints:
                 if joint.type == 'revolute':
@@ -519,97 +729,38 @@ class MainWindow(QMainWindow):
             self.trajectory_panel.update_workspace_ranges()
 
     def _refresh_arm_display(self):
-        """Redraw arm according to current mode."""
         if self.mode == 'standard':
             q1, q2, q3 = self.current_angles
             positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
             self.arm_canvas.draw_arm(positions)
-            # Update EE display
             tip = positions[-1]
-            self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
+            self._update_ee_display(tip[0], tip[1], tip[2])
         else:
-            # custom DH mode: compute positions from chain (uses each joint's theta/d directly)
             positions = self.chain_panel.chain.joint_positions()
-            # Pass base height from the chain's base_height
             self.arm_canvas.draw_chain(positions, base_height=self.chain_panel.chain.base_height)
-            # Update EE display immediately
             tip = positions[-1]
-            self.lbl_ee_status.setText(f"End-Effector Position:\nX: {tip[0]:.3f} m\nY: {tip[1]:.3f} m\nZ: {tip[2]:.3f} m")
-
-    def _toggle_ground(self, checked):
-        """Toggle ground and workspace grid visibility."""
-        if hasattr(self.arm_canvas, 'toggle_ground'):
-            self.arm_canvas.toggle_ground(checked)
-            self.status_bar.showMessage("Ground hidden" if not checked else "Ground shown")
+            self._update_ee_display(tip[0], tip[1], tip[2])
 
     def _on_ee_updated(self, pos):
-        """Update end-effector position display (from custom DH mode)."""
         x, y, z = pos
-        self.lbl_ee_status.setText(f"End-Effector Position:\nX: {x:.3f} m\nY: {y:.3f} m\nZ: {z:.3f} m")
+        self._update_ee_display(x, y, z)
 
-    def _play_trajectory(self):
-        """Generate and play the trajectory through waypoints."""
-        waypoints = self.waypoint_panel.get_waypoints()
-        if len(waypoints) < 2:
-            QMessageBox.warning(self, "Not enough waypoints", "Add at least 2 waypoints to play a trajectory.")
-            return
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Viewport controls
+    # ═══════════════════════════════════════════════════════════════════════
 
-        # Generate smooth trajectory
-        try:
-            from backend.trajectory import generate_trajectory, validate_trajectory
-            traj = generate_trajectory(waypoints, num_points=200, method='linear')
-        except Exception as e:
-            QMessageBox.critical(self, "Trajectory Error", f"Failed to generate: {e}")
-            return
+    def _reset_view(self):
+        self._update_view_for_robot()
+        self.arm_canvas.set_view(name='iso')
+        self.sb_message.setText("View reset — Isometric")
 
-        # Validate trajectory
-        valid_mask = validate_trajectory(traj)
-        if not all(valid_mask):
-            invalid_count = sum(1 for v in valid_mask if not v)
-            resp = QMessageBox.question(self, "Collision/Unreachable Points",
-                                        f"{invalid_count} points fail IK or collision detection. Play anyway?",
-                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if resp == QMessageBox.StandardButton.No:
-                return
-            # Filter valid points only? For simplicity, we'll still play but mark invalid points in trace.
-            # We'll keep all points but maybe color invalid ones red later. For now, just proceed.
+    def _set_view_preset(self, name):
+        if hasattr(self.arm_canvas, 'set_view'):
+            self.arm_canvas.set_view(name=name)
+            names = {'front': 'Front', 'side': 'Side', 'top': 'Top', 'iso': 'Isometric', 'back': 'Back'}
+            self.sb_message.setText(f"View: {names.get(name, name)}")
 
-        # Extract tip positions for trace
-        trace_points = [pt['pos'] for pt in traj]
-        self.arm_canvas.set_trajectory(trace_points)
-
-        # Start playback using QTimer
-        self._trajectory_index = 0
-        self._trajectory_points = traj
-        self._trajectory_playing = True
-        from PyQt6.QtCore import QTimer
-        self._traj_timer = QTimer()
-        self._traj_timer.timeout.connect(self._trajectory_step)
-        self._trajectory_interval = 30  # ms between frames (about 33fps)
-        self._traj_timer.start(self._trajectory_interval)
-        self.btn_play.setEnabled(False)
-        self.status_bar.showMessage("Playing trajectory...")
-
-    def _trajectory_step(self):
-        """Advance one step in trajectory playback."""
-        if not hasattr(self, '_trajectory_playing') or not self._trajectory_playing:
-            return
-        if self._trajectory_index >= len(self._trajectory_points):
-            self._traj_timer.stop()
-            self._trajectory_playing = False
-            self.btn_play.setEnabled(True)
-            self.status_bar.showMessage("Trajectory complete")
-            return
-
-        pt = self._trajectory_points[self._trajectory_index]
-        pos = pt['pos']
-        wrist = pt['wrist']
-        # Solve IK for XYZ to get q1,q2,q3
-        from backend.trajectory import solve_ik_for_waypoint
-        angles = solve_ik_for_waypoint(pos, wrist)
-        if angles is not None:
-            q1, q2, q3, q4, q5, q6 = angles
-            self._apply_target_angles(q1, q2, q3, q4, q5, q6)
-        else:
-            print(f"WARNING: Trajectory point {self._trajectory_index} unreachable, skipping", file=sys.stderr)
-        self._trajectory_index += 1
+    def _toggle_ground(self, checked):
+        if hasattr(self.arm_canvas, 'toggle_ground'):
+            self.arm_canvas.toggle_ground(checked)
+            self.sb_message.setText("Ground " + ("shown" if checked else "hidden"))
