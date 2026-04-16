@@ -307,6 +307,7 @@ class TrajectoryPanel(QWidget):
             q2 = (q2 + 180) % 360 - 180
             q3 = (q3 + 180) % 360 - 180
             self.animation_target_angles = [q1, q2, q3]
+            self.current_angles = [q1, q2, q3]  # Set current so animation has valid start
 
         self.animating = True
         self.btn_animate.setEnabled(False)
