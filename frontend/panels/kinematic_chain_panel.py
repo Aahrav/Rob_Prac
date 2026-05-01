@@ -12,7 +12,10 @@ from frontend.panels.custom_combo_box import CustomComboBox
 
 from PyQt6.QtCore import pyqtSignal, Qt
 from backend.kinematics import KinematicChain, DHJoint
+from backend.logger import get_logger
 import numpy as np
+
+log = get_logger(__name__)
 
 
 class JointCard(QGroupBox):
@@ -410,10 +413,10 @@ class KinematicChainPanel(QWidget):
                 name=f"Link {len(self.chain.joints)+1}"
             )
         self.chain.add_joint(joint)
+        log.info("Joint added | index=%d | %r", len(self.chain.joints) - 1, joint)
         self._rebuild_cards()
         self._update_sliders()
         self.chain_updated.emit(self.chain)
-        # Also compute FK to update end-effector
         self._compute_and_emit_fk()
 
     def _rebuild_cards(self):
@@ -453,6 +456,7 @@ class KinematicChainPanel(QWidget):
         if len(self.chain.joints) <= 1:
             QMessageBox.warning(self, "Cannot delete", "At least one joint must remain.")
             return
+        log.info("Joint deleted | index=%d | %r", index, self.chain.joints[index])
         self.chain.remove_joint(index)
         self._rebuild_cards()
         self._update_sliders()
@@ -500,6 +504,7 @@ class KinematicChainPanel(QWidget):
             joint.theta = value
         elif joint.type == 'prismatic':
             joint.d = value
+        log.debug("Slider J%d changed | value=%.3f", index + 1, value)
         # Also update the corresponding card's field to reflect change
         if index < len(self.joint_cards):
             card = self.joint_cards[index]
@@ -513,9 +518,10 @@ class KinematicChainPanel(QWidget):
         try:
             positions = self.chain.joint_positions()  # (N+1,3), uses each joint's own theta/d
             tip_pos = positions[-1]
+            log.debug("FK computed | EE=(%.4f, %.4f, %.4f)", tip_pos[0], tip_pos[1], tip_pos[2])
             self.end_effector_updated.emit(tip_pos)
         except Exception as e:
-            print(f"FK error: {e}")
+            log.error("FK error: %s", e, exc_info=True)
 
     def _update_ee_label(self, pos):
         """Update end-effector position label."""

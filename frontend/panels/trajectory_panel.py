@@ -11,6 +11,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
 from backend.kinematics import inverse_kinematics_3dof, ArmConfig
+from backend.logger import get_logger
+
+log = get_logger(__name__)
 
 
 # ── Style tokens ─────────────────────────────────────────────────────────────
@@ -241,27 +244,40 @@ class TrajectoryPanel(QWidget):
 
     def _set_target_clicked(self):
         self.target_pos = self.current_pos[:]
+        log.info("Target set: (%.4f, %.4f, %.4f)", *self.target_pos)
         self.lbl_status.setText("⬤  Target set")
         self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
         self.btn_animate.setEnabled(True)
 
     def _animate_clicked(self):
         if self.target_pos is None:
+            log.warning("Animate clicked but no target set")
             self.lbl_status.setText("⬤  No target set")
             self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
             return
 
         x, y, z = self.target_pos
+        log.info(
+            "Animate clicked | mode=%s | target=(%.4f, %.4f, %.4f)",
+            "custom_chain" if self.use_custom_chain else "standard",
+            x, y, z,
+        )
 
         if self.use_custom_chain and self.chain is not None:
             max_xy = sum(joint.a for joint in self.chain.joints)
-            if np.sqrt(x*x + y*y) > max_xy * 1.05:
+            xy_dist = np.sqrt(x*x + y*y)
+            log.debug("Custom chain reach check | max_xy=%.4f | xy_dist=%.4f", max_xy, xy_dist)
+            if xy_dist > max_xy * 1.05:
+                log.warning("Target out of XY reach (%.4f > %.4f)", xy_dist, max_xy * 1.05)
                 self.lbl_status.setText("⬤  Out of reach")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
         else:
             max_xy = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
-            if np.sqrt(x*x + y*y) > max_xy * 1.05:
+            xy_dist = np.sqrt(x*x + y*y)
+            log.debug("Standard reach check | max_xy=%.4f | xy_dist=%.4f", max_xy, xy_dist)
+            if xy_dist > max_xy * 1.05:
+                log.warning("Target out of XY reach (%.4f > %.4f)", xy_dist, max_xy * 1.05)
                 self.lbl_status.setText("⬤  Out of reach")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
@@ -276,21 +292,38 @@ class TrajectoryPanel(QWidget):
                 else:
                     initial_angles.append(0.0)
 
+            log.debug(
+                "Custom IK | chain joints=%d | initial_angles=%s",
+                len(self.chain.joints),
+                [round(a, 3) for a in initial_angles],
+            )
+
             var_indices = [i for i, joint in enumerate(self.chain.joints)
                            if joint.type in ('revolute', 'prismatic')]
-            if len(var_indices) < 3:
-                self.lbl_status.setText("⬤  Need ≥3 variable joints")
+            if len(var_indices) < 1:
+                log.warning("IK aborted — no variable joints in chain")
+                self.lbl_status.setText("⬤  No variable joints")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
 
             full_solution = self.chain.inverse_kinematics(np.array([x, y, z]), initial_angles=initial_angles)
             if full_solution is None:
+                log.warning(
+                    "IK FAILED for custom chain | target=(%.4f, %.4f, %.4f)",
+                    x, y, z,
+                )
                 self.lbl_status.setText("⬤  IK failed")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
 
             start_vars = [initial_angles[i] for i in var_indices]
             target_vars = [full_solution[i] for i in var_indices]
+            log.info(
+                "IK solved | var_indices=%s | start=%s | target=%s",
+                var_indices,
+                [round(v, 3) for v in start_vars],
+                [round(v, 3) for v in target_vars],
+            )
             self.current_angles = start_vars[:3]
             self.target_angles_updated.emit(*start_vars[:3])
             self._var_joint_indices = var_indices
@@ -300,6 +333,7 @@ class TrajectoryPanel(QWidget):
         else:
             result = inverse_kinematics_3dof(x, y, z, self.config, elbow_down=True)
             if result is None:
+                log.warning("Standard IK failed | target=(%.4f, %.4f, %.4f)", x, y, z)
                 self.lbl_status.setText("⬤  Target unreachable")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
@@ -307,12 +341,16 @@ class TrajectoryPanel(QWidget):
             q1 = (q1 + 180) % 360 - 180
             q2 = (q2 + 180) % 360 - 180
             q3 = (q3 + 180) % 360 - 180
+            log.info("Standard IK solved | q1=%.3f q2=%.3f q3=%.3f", q1, q2, q3)
             self.animation_target_angles = [q1, q2, q3]
 
         self.animating = True
         self.btn_animate.setEnabled(False)
         self.btn_set.setEnabled(False)
         self.btn_stop.setEnabled(True)
+        log.info("Animation started | start=%s | target=%s",
+                 [round(v, 3) for v in self.animation_start_angles] if self.animation_start_angles else "TBD",
+                 [round(v, 3) for v in self.animation_target_angles])
         self.lbl_status.setText("⬤  Animating...")
         self.lbl_status.setStyleSheet("color: #f39c12; font-size: 11px; padding: 4px 0;")
         self._start_animation()
@@ -325,6 +363,11 @@ class TrajectoryPanel(QWidget):
         if not self.animation_target_angles:
             self.animation_target_angles = self.animation_start_angles[:]
 
+        log.debug(
+            "Animation timer starting | start=%s | target=%s | duration=2000ms",
+            [round(v, 3) for v in self.animation_start_angles],
+            [round(v, 3) for v in self.animation_target_angles],
+        )
         self.anim_duration = 2000
         self._anim_start_time = None
         from PyQt6.QtCore import QTimer
@@ -335,6 +378,7 @@ class TrajectoryPanel(QWidget):
     def _animation_step(self):
         if self._anim_start_time is None:
             self._anim_start_time = time.perf_counter()
+            log.debug("Animation first tick")
 
         elapsed = (time.perf_counter() - self._anim_start_time) * 1000
         t = min(elapsed / self.anim_duration, 1.0)
@@ -344,6 +388,7 @@ class TrajectoryPanel(QWidget):
         target = self.animation_target_angles
         n = len(start)
         if n == 0:
+            log.warning("Animation step called with empty start_angles — aborting")
             return
 
         current = [start[i] + (target[i] - start[i]) * t for i in range(n)]
@@ -358,6 +403,10 @@ class TrajectoryPanel(QWidget):
 
         if n >= 3:
             self.target_angles_updated.emit(current[0], current[1], current[2])
+        elif n > 0:
+            # Fewer than 3 variable joints — still emit to trigger canvas redraw
+            padded = current + [0.0] * (3 - n)
+            self.target_angles_updated.emit(padded[0], padded[1], padded[2])
 
         if t >= 1.0:
             self.animation_timer.stop()
@@ -365,6 +414,10 @@ class TrajectoryPanel(QWidget):
             self.btn_animate.setEnabled(True)
             self.btn_set.setEnabled(True)
             self.btn_stop.setEnabled(False)
+            log.info(
+                "Animation complete | final_angles=%s",
+                [round(v, 3) for v in current],
+            )
             self.lbl_status.setText("⬤  Target reached")
             self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
             self._var_joint_indices = None
@@ -378,6 +431,7 @@ class TrajectoryPanel(QWidget):
         self.btn_animate.setEnabled(True)
         self.btn_set.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        log.info("Animation stopped by user")
         self.lbl_status.setText("⬤  Stopped")
         self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
 

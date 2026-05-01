@@ -7,6 +7,9 @@ Computes joint positions given joint angles, or solves joint angles from end-eff
 import numpy as np
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
+from backend.logger import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -306,6 +309,12 @@ class KinematicChain:
         """
         import numpy.linalg as LA
 
+        log.debug(
+            "FK called | joints=%d | angles=%s",
+            len(self.joints),
+            [round(a, 3) for a in joint_angles] if joint_angles else "from joint.theta/d",
+        )
+
         T_base = np.eye(4)
         T_base[2, 3] = self.base_height  # base origin at (0,0,base_height)
         transforms = [T_base]
@@ -336,7 +345,16 @@ class KinematicChain:
             ])
             T_new = transforms[-1] @ T
             transforms.append(T_new)
+            log.debug(
+                "  J%d (%s) θ=%.2f d=%.3f a=%.3f α=%.2f → pos=(%.3f, %.3f, %.3f)",
+                i + 1, joint.type,
+                np.degrees(theta) if joint.type != 'prismatic' else joint.theta,
+                d, joint.a, joint.alpha,
+                T_new[0, 3], T_new[1, 3], T_new[2, 3],
+            )
 
+        ee = transforms[-1][:3, 3]
+        log.debug("FK result EE=(%.4f, %.4f, %.4f)", ee[0], ee[1], ee[2])
         return transforms
 
     def joint_positions(self, joint_angles: List[float] = None) -> np.ndarray:
@@ -360,65 +378,191 @@ class KinematicChain:
         joints = [DHJoint.from_dict(j) for j in data['joints']]
         return KinematicChain(joints, base_height=data.get('base_height', 0.0))
 
-    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 100, tol: float = 0.01) -> Optional[List[float]]:
+    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 500, tol: float = 0.005) -> Optional[List[float]]:
         """
-        Numerical IK using Jacobian pseudoinverse.
-        Solves for joint angles (in degrees) that place the end-effector at target_position.
-        Returns list of angles (one per joint). Fixed joints are ignored (their value won't affect result).
+        Numerical IK using damped least-squares (Levenberg-Marquardt) Jacobian.
+        Solves for joint angles (in degrees for revolute, meters for prismatic) that place
+        the end-effector at target_position.
+        Returns list of angles (one per joint). Fixed joints are ignored.
         """
         n = len(self.joints)
+        log.info(
+            "IK requested | target=(%.4f, %.4f, %.4f) | joints=%d | base_height=%.3f",
+            target_position[0], target_position[1], target_position[2], n, self.base_height,
+        )
+
         if n == 0:
-            return None
-        # Determine which joints are variable (revolute or prismatic). We'll solve for all that change.
-        variable_mask = []
-        for j in self.joints:
-            variable_mask.append(j.type in ('revolute', 'prismatic'))
-        var_indices = [i for i, v in enumerate(variable_mask) if v]
-        if not var_indices:
+            log.warning("IK aborted — chain has no joints")
             return None
 
-        # Initial guess
+        # Determine which joints are variable (revolute or prismatic).
+        var_indices = [i for i, j in enumerate(self.joints) if j.type in ('revolute', 'prismatic')]
+        if not var_indices:
+            log.warning("IK aborted — no variable joints (all fixed)")
+            return None
+
+        log.debug(
+            "IK variable joints: %s",
+            [(i, self.joints[i].type, self.joints[i].name) for i in var_indices],
+        )
+
+        # Check reachability: rough upper bound on reach
+        max_reach = sum(abs(j.a) for j in self.joints) + sum(abs(j.d) for j in self.joints)
+        dist = np.linalg.norm(target_position - np.array([0.0, 0.0, self.base_height]))
+        log.debug("IK reachability | max_reach=%.4f | dist_from_base=%.4f", max_reach, dist)
+        if dist > max_reach * 1.05:
+            log.warning(
+                "IK aborted — target out of reach (dist=%.4f > max_reach*1.05=%.4f)",
+                dist, max_reach * 1.05,
+            )
+            return None  # clearly out of reach, skip solver
+
+        def _run_ik(start_angles, run_label=""):
+            angles = start_angles[:]
+            best_angles = angles[:]
+            best_error = float('inf')
+
+            # Finite-difference delta: 1° for revolute
+            delta_deg = 1.0
+            # Damping factor — start small, increase if stuck
+            damping = 0.01
+            max_step_deg = 15.0
+            max_step_m = 0.05
+
+            log.debug(
+                "IK run%s | start=%s",
+                f" [{run_label}]" if run_label else "",
+                [round(a, 3) for a in start_angles],
+            )
+
+            for it in range(max_iter):
+                transforms = self.forward_kinematics(angles)
+                ee_pos = transforms[-1][:3, 3]
+                error = target_position - ee_pos
+                err_norm = np.linalg.norm(error)
+
+                if err_norm < best_error:
+                    best_error = err_norm
+                    best_angles = angles[:]
+
+                # Log every 50 iterations to track convergence without flooding
+                if it % 50 == 0 or err_norm < tol:
+                    log.debug(
+                        "  iter %3d | err=%.5f | ee=(%.4f,%.4f,%.4f) | angles=%s",
+                        it, err_norm,
+                        ee_pos[0], ee_pos[1], ee_pos[2],
+                        [round(a, 2) for a in angles],
+                    )
+
+                if err_norm < tol:
+                    log.info(
+                        "IK converged%s at iter %d | err=%.5f | solution=%s",
+                        f" [{run_label}]" if run_label else "",
+                        it, err_norm,
+                        [round(a, 3) for a in angles],
+                    )
+                    return angles, best_error
+
+                # Build Jacobian J (3 x len(var_indices)) via finite differences
+                J = np.zeros((3, len(var_indices)))
+                for col, idx in enumerate(var_indices):
+                    perturbed = angles[:]
+                    perturbed[idx] += delta_deg
+                    pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
+                    J[:, col] = (pos_plus - ee_pos) / delta_deg
+
+                # Damped least-squares: delta_q = J^T (J J^T + lambda^2 I)^{-1} error
+                JJT = J @ J.T
+                try:
+                    delta_vars = J.T @ np.linalg.solve(JJT + damping**2 * np.eye(3), error)
+                except np.linalg.LinAlgError as exc:
+                    log.error("IK Jacobian solve failed at iter %d: %s", it, exc)
+                    break
+
+                # Apply step with clamping to prevent divergence
+                for col, idx in enumerate(var_indices):
+                    step = delta_vars[col]
+                    if self.joints[idx].type == 'revolute':
+                        step = np.clip(step, -max_step_deg, max_step_deg)
+                    else:
+                        step = np.clip(step, -max_step_m, max_step_m)
+                    angles[idx] += step
+
+            log.debug(
+                "IK run%s ended | best_err=%.5f | best_angles=%s",
+                f" [{run_label}]" if run_label else "",
+                best_error,
+                [round(a, 3) for a in best_angles],
+            )
+            return best_angles, best_error
+
+        # Try multiple random restarts to escape local minima
+        import random
+        best_overall_angles = None
+        best_overall_error = float('inf')
+
+        # First try: use current joint angles as initial guess
         if initial_angles is None:
-            angles = []
+            start = []
             for j in self.joints:
                 if j.type == 'revolute':
-                    angles.append(j.theta)
+                    start.append(j.theta)
                 elif j.type == 'prismatic':
-                    angles.append(j.d)
+                    start.append(j.d)
                 else:
-                    angles.append(0.0)
+                    start.append(0.0)
         else:
-            angles = list(initial_angles)
+            start = list(initial_angles)
 
-        # Small delta in degrees for finite differences
-        delta_deg = 0.1
+        result_angles, result_error = _run_ik(start, run_label="initial")
+        if result_error < best_overall_error:
+            best_overall_error = result_error
+            best_overall_angles = result_angles
 
-        for it in range(max_iter):
-            # Forward kinematics with current angles
-            transforms = self.forward_kinematics(angles)
-            ee_pos = transforms[-1][:3, 3]
-            error = target_position - ee_pos
-            if np.linalg.norm(error) < tol:
-                return angles
+        if best_overall_error < tol:
+            log.info("IK solved on initial guess | final_err=%.5f", best_overall_error)
+            return best_overall_angles
 
-            # Compute Jacobian J (3 x n) via finite differences
-            J = np.zeros((3, n))
-            for idx in var_indices:
-                perturbed = angles.copy()
-                perturbed[idx] += delta_deg
-                pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
-                J[:, idx] = (pos_plus - ee_pos) / delta_deg
-            # Pseudoinverse
-            try:
-                J_pinv = np.linalg.pinv(J)
-            except np.linalg.LinAlgError:
-                return None
-            delta_angles = J_pinv @ error
-            # Update angles
-            for i in var_indices:
-                angles[i] += delta_angles[i]
+        # Random restarts
+        rng = np.random.default_rng(42)
+        for restart_idx in range(5):
+            rand_start = []
+            for j in self.joints:
+                if j.type == 'revolute':
+                    lo = j.q_min if j.q_min is not None else -180.0
+                    hi = j.q_max if j.q_max is not None else 180.0
+                    rand_start.append(float(rng.uniform(lo, hi)))
+                elif j.type == 'prismatic':
+                    lo = j.q_min if j.q_min is not None else 0.0
+                    hi = j.q_max if j.q_max is not None else 1.0
+                    rand_start.append(float(rng.uniform(lo, hi)))
+                else:
+                    rand_start.append(0.0)
+            result_angles, result_error = _run_ik(rand_start, run_label=f"restart-{restart_idx+1}")
+            if result_error < best_overall_error:
+                best_overall_error = result_error
+                best_overall_angles = result_angles
+            if best_overall_error < tol:
+                log.info(
+                    "IK solved on restart %d | final_err=%.5f",
+                    restart_idx + 1, best_overall_error,
+                )
+                break
 
-        # Did not converge
+        # Return best solution found, or None if too far off
+        if best_overall_error < 0.05:  # within 5 cm — acceptable near-solution
+            log.info(
+                "IK returning near-solution | best_err=%.5f | angles=%s",
+                best_overall_error,
+                [round(a, 3) for a in best_overall_angles],
+            )
+            return best_overall_angles
+
+        log.warning(
+            "IK FAILED | best_err=%.5f (threshold 0.05 m) | target=(%.4f,%.4f,%.4f)",
+            best_overall_error,
+            target_position[0], target_position[1], target_position[2],
+        )
         return None
 
     @staticmethod
