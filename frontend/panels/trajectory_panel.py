@@ -100,6 +100,7 @@ class TrajectoryPanel(QWidget):
         super().__init__(parent)
 
         self.config = config if config is not None else ArmConfig()
+        self.current_angles = [0.0, 0.0, 0.0]  # Actual current joint angles
         self.current_pos = [0.5, 0.0, 0.3]
         self.target_pos = None
         self.chain = None
@@ -307,7 +308,6 @@ class TrajectoryPanel(QWidget):
             q2 = (q2 + 180) % 360 - 180
             q3 = (q3 + 180) % 360 - 180
             self.animation_target_angles = [q1, q2, q3]
-            self.current_angles = [q1, q2, q3]  # Set current so animation has valid start
 
         self.animating = True
         self.btn_animate.setEnabled(False)
