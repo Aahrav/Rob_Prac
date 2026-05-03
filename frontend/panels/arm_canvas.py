@@ -70,6 +70,30 @@ class ArmCanvas(FigureCanvas):
         # Workspace reference elements (ground + grid + boundary)
         self._ground_elements = []  # list of artists to toggle
 
+        # ── Idle overlay (P3-T4) ───────────────────────────────────────────
+        # Rendered at figure-level coordinates so it floats above the 3D axes
+        # regardless of viewport rotation.  MainWindow calls set_idle_message();
+        # draw_arm / draw_chain also hide it automatically as a safety net.
+        self._idle_visible: bool = False   # will be set True by _init_empty_plot
+        self._idle_overlay = self.fig.text(
+            0.5, 0.5,
+            "No data\nChoose  Simulate  or  Replay",
+            transform=self.fig.transFigure,
+            ha='center', va='center',
+            fontsize=16,
+            fontfamily='monospace',
+            color='#e5e2e1',
+            alpha=0.0,          # hidden until _init_empty_plot enables it
+            zorder=10,
+            bbox=dict(
+                boxstyle='round,pad=0.8',
+                facecolor='#131313',
+                edgecolor='#3498db',
+                alpha=0.0,      # also hidden; set together via set_idle_message
+                linewidth=1.5,
+            ),
+        )
+
         self._init_empty_plot()
 
     def _init_empty_plot(self):
@@ -92,6 +116,8 @@ class ArmCanvas(FigureCanvas):
         self._ground_elements = []  # will be repopulated by _add_static_ground
         self._setup_axes()
         self._add_static_ground()
+        # Show the idle overlay whenever the canvas is reset (disconnect / startup)
+        self.set_idle_message(True)
         self.draw()
 
     def _setup_axes(self):
@@ -210,12 +236,38 @@ class ArmCanvas(FigureCanvas):
         self.colliding_segments = collisions
         return collisions
 
+    # ── Idle overlay public API (P3-T4) ─────────────────────────────────────
+
+    def set_idle_message(self, visible: bool) -> None:
+        """Show or hide the 'No data' idle overlay.
+
+        Called by MainWindow:
+          • set_idle_message(True)  — on disconnect / stop / startup
+          • set_idle_message(False) — when the first valid sample arrives
+
+        draw_arm() and draw_chain() also call set_idle_message(False)
+        automatically so callers need not remember to do so.
+        """
+        if visible == self._idle_visible:
+            return
+        self._idle_visible = visible
+        alpha_text = 0.92 if visible else 0.0
+        alpha_box  = 0.88 if visible else 0.0
+        self._idle_overlay.set_alpha(alpha_text)
+        self._idle_overlay.get_bbox_patch().set_alpha(alpha_box)
+        self.draw_idle()
+
+    # ────────────────────────────────────────────────────────────────────────
+
     def draw_arm(self, positions):
         """
         Draw the arm with 3D meshes.
         positions: (5, 3) numpy array of joint coordinates: [shoulder, elbow, wrist, tip, ?]
         We expect positions from compute_arm_positions with 6 points? We'll adapt to use first 5.
         """
+        # Hide idle overlay — data has arrived
+        self.set_idle_message(False)
+
         # Clear previous arm meshes (ground stays)
         for key in ['base', 'upper', 'lower', 'gripper']:
             if self.meshes[key]:
@@ -417,6 +469,9 @@ class ArmCanvas(FigureCanvas):
         positions: (N+1, 3) numpy array where positions[0] is base origin and positions[-1] is end-effector.
         base_height: optional height of base from ground; if None, uses positions[0,2].
         """
+        # Hide idle overlay — data has arrived
+        self.set_idle_message(False)
+
         # Clear previous custom meshes and standard meshes
         for key in ['base', 'upper', 'lower', 'gripper']:
             if self.meshes[key]:
