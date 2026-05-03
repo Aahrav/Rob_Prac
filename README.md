@@ -10,10 +10,7 @@ testable in software before any physical hardware is connected.
 
 ## Screenshots
 
-> _Screenshot placeholder — run the app and press `Win+Shift+S` (Windows) or
-> `scrot` (Linux) to capture. Replace this line with the image._
-
-![RoboSim main window](docs/screenshot_placeholder.png)
+Add `docs/screenshot.png` after capturing the running app (optional).
 
 ---
 
@@ -28,6 +25,11 @@ testable in software before any physical hardware is connected.
 | Dependency management | Poetry |
 
 ---
+
+## Troubleshooting
+
+- **Window flashes then closes:** often caused by extra flags on `sys.argv` confusing Qt when launching from an IDE. This build passes only the executable path into `QApplication`. Run `python run.py -v` from a terminal and inspect `logs/robosim.log` / `logs/crash.log`. Use `poetry install` from `Rob_Prac`.
+- **Nothing in the console:** by default only WARNING+ is printed; use `-v` (INFO) or `--debug` (DEBUG).
 
 ## Installation
 
@@ -86,11 +88,6 @@ poetry run app --record /tmp/session.csv
 poetry run app --replay /tmp/session.csv
 ```
 
-> `--record` and `--replay` flags are implemented by **Part 2** of the parallel
-> build. If they are not yet available, run without flags and use the GUI.
-
----
-
 ## CSV data format
 
 Files must be UTF-8, one row per line, with this exact header:
@@ -144,15 +141,12 @@ robosim/
 
 ---
 
-## Parallel development branches
+## Tests
 
-| Branch | Owner | Scope |
-|--------|-------|-------|
-| `part1/pipeline` | Sujal | sensor_contract, parser, filter, recording, tests |
-| `part2/workers` | Aarav | ReplayWorker, SimWorker refactor, argparse, MainWindow slots |
-| `part3/ui-ux` | You | UI panels, overlay, calibration, error UX, docs |
-
-Merge order: Part 1 → Part 2 → Part 3.
+```bash
+poetry install --with dev
+poetry run pytest backend/tests/ -v
+```
 
 ---
 
@@ -172,17 +166,8 @@ In the running app: **Help → About RoboSim** (`F1`) or
 
 ---
 
-## Running tests  *(Part 1 — when available)*
-
-```bash
-poetry run pytest backend/tests/ -v
-```
-
----
-
 ## Roadmap
 
 - [ ] Hardware phase: `SerialWorker` + COM port selection
-- [ ] Keyboard shortcut wiring (stubs in Help → Shortcuts)
 - [ ] Dark-mode QSplitter handle drag indicator
 - [ ] Export trajectory as CSV from Trajectory Control panel

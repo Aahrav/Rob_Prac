@@ -16,6 +16,9 @@ matplotlib = "^3.7"
 [tool.poetry.scripts]
 app = "frontend.app:main"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

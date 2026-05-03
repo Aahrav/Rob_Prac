@@ -142,16 +142,7 @@ class DataPanel(QWidget):
             self._show_rate(float(rate))
 
     def record_sample(self) -> None:
-        """Increment the internal packet counter.
-
-        Call this once per validated sample that arrives from any producer
-        (SimWorker, ReplayWorker, future SerialWorker).  The QTimer fires
-        every 1 s and converts the count to a pps reading automatically.
-
-        TODO: connect to Part 2 _on_sample_received — for now MainWindow
-              should call self.data_panel.record_sample() inside
-              _on_data_received() as a temporary fallback.
-        """
+        """Increment the packet counter — invoked once per displayed sample."""
         self._sample_count += 1
 
     # ── Private helpers ──────────────────────────────────────────────────────

@@ -8,10 +8,10 @@ P3-T1: Three data-source modes (visuals only — Part 2 wires workers):
     • Replay file…    — user picks a CSV; path is emitted via connect_requested.
     • USB Serial      — disabled pill, coming soon when hardware ships.
 
-Signals (unchanged from original so main_window.py needs no wiring edits):
+Signals:
     connect_requested(port: str, baud: int)
-        Simulate → port="SIMULATED (no hardware)"
-        Replay   → port=<absolute CSV path>, baud=0
+        Simulate → ``SIMULATED (no hardware)``
+        Replay   → ``REPLAY:<absolute CSV path>``, baud=0
     disconnect_requested()
     mode_changed(mode: str)  — "simulate" | "replay" | "serial"
     status_changed(str)
@@ -296,8 +296,8 @@ class ConnectionPanel(QWidget):
 
         elif self._current_mode == "Replay":
             if self._replay_path:
-                # TODO: Part 2 _on_connect_requested will add _start_replay(path)
-                self.connect_requested.emit(self._replay_path, 0)
+                # Prefix so MainWindow distinguishes replay path from future COM port names.
+                self.connect_requested.emit(f"REPLAY:{self._replay_path}", 0)
             else:
                 self.set_status("No replay file selected — click Browse…")
 

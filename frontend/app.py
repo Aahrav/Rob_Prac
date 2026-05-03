@@ -36,9 +36,6 @@ from PyQt6.QtWidgets import QApplication
 
 from backend.logger import get_logger, set_console_level
 
-# Initialise logger before any other import that might use it
-log = get_logger(__name__)
-
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     """Return the argument parser for the application CLI."""
@@ -83,15 +80,55 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "directly without gyro-fusion. Useful for debugging."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print INFO-level logs to the console (default: WARNING+).",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print DEBUG-level logs to the console.",
+    )
     return parser
+
+
+def _install_qt_message_logger() -> None:
+    """Forward Qt critical/fatal messages into ``robosim.qt``."""
+    try:
+        from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+    except ImportError:
+        return
+
+    log_qt = get_logger("qt")
+
+    def _handler(mode, context, message: str) -> None:
+        fn = getattr(context, "file", None) or "?"
+        ln = getattr(context, "line", None) or 0
+        text = f"{message} ({fn}:{ln})"
+        if mode == QtMsgType.QtFatalMsg:
+            log_qt.critical(text)
+        elif mode == QtMsgType.QtCriticalMsg:
+            log_qt.error(text)
+        elif mode == QtMsgType.QtWarningMsg:
+            log_qt.warning(text)
+        else:
+            log_qt.debug(text)
+
+    qInstallMessageHandler(_handler)
 
 
 def main():
     """Create and run the Qt application."""
-    # ── Parse CLI args (strip Qt's own args first) ───────────────────────────
-    # We parse known args so that PyQt6 / platform args are not rejected.
     parser = _build_arg_parser()
-    args, _qt_args = parser.parse_known_args()
+    args, qt_argv = parser.parse_known_args()
+
+    log = get_logger(__name__)
+    if args.debug:
+        set_console_level(logging.DEBUG)
+    elif args.verbose:
+        set_console_level(logging.INFO)
 
     log.info(
         "RoboSim starting up | replay=%s | record=%s | no_filter=%s",
@@ -99,22 +136,32 @@ def main():
         args.record,
         args.no_filter,
     )
-
-    # Uncomment to see DEBUG messages in the terminal:
-    # set_console_level(logging.DEBUG)
+    if qt_argv:
+        log.debug("Argv not consumed by argparse (not passed to Qt): %s", qt_argv)
 
     from .main_window import MainWindow
 
-    app = QApplication(sys.argv)
-    window = MainWindow(
-        replay_path=args.replay,
-        record_path=args.record,
-        use_filter=not args.no_filter,
-    )
-    window.show()
-    log.info("MainWindow shown — entering event loop")
-    exit_code = app.exec()
-    log.info("Application exited with code %d", exit_code)
+    # Pass only the program path to Qt. IDE/debuggers often inject ``-X``, ``-m``, etc.
+    # into ``sys.argv``; Qt treats unknown flags as errors and can quit instantly.
+    qapp_argv = [sys.argv[0]]
+    log.debug("QApplication argv: %s", qapp_argv)
+    app = QApplication(qapp_argv)
+    _install_qt_message_logger()
+
+    exit_code = 1
+    try:
+        window = MainWindow(
+            replay_path=args.replay,
+            record_path=args.record,
+            use_filter=not args.no_filter,
+        )
+        window.show()
+        log.info("MainWindow shown — entering event loop")
+        exit_code = app.exec()
+        log.info("Application exited with code %d", exit_code)
+    except BaseException:
+        log.exception("Fatal error during startup or event loop")
+        raise
     sys.exit(exit_code)
 
 

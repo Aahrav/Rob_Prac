@@ -8,7 +8,10 @@ Usage:
   python run.py --record my_session.csv
   python run.py --replay foo.csv --record bar.csv            # replay + record simultaneously
   python run.py --no-filter                                  # bypass ComplementaryFilter
+  python run.py -v                                           # INFO logs on console + files
   python run.py --help                                       # full flag reference
+
+If the window closes immediately, check logs/crash.log and logs/robosim.log under Rob_Prac/.
 """
 
 from frontend.app import main

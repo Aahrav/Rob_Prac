@@ -6,28 +6,30 @@ Kinetic Obsidian dark engineering theme (Stitch "Kinetic Monolith" design system
 Part 2 additions (P2-T5):
   - Unified _on_sample_received() slot — single entry point for all producers.
   - Calibration offsets stored on MainWindow; applied before filter.
-  - ComplementaryFilter from Part 1 lazily imported (fallback: identity).
+  - ComplementaryFilter from ``backend.filter`` (honours ``--no-filter``).
   - SimWorker / ReplayWorker replace the inline Simulator class.
   - --record CSV writer opened at startup; raw dict written before filter.
   - --replay auto-starts via QTimer.singleShot after window.show().
   - Public API for Part 3: set_calibration_offsets(), get_packet_count(),
-    set_idle_message().
+    set_idle_overlay_visible().
 """
 
-import csv
-import sys
 from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QCheckBox,
                               QButtonGroup, QRadioButton, QScrollArea,
-                              QStatusBar, QFrame, QSizePolicy, QMenu, QMessageBox, QMessageBox)
+                              QStatusBar, QFrame, QSizePolicy, QMenu, QMessageBox)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QFontDatabase, QColor, QAction
+from PyQt6.QtGui import QFont, QFontDatabase, QColor, QAction, QShortcut, QKeySequence
 
 from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof, KinematicChain
+from backend.logger import get_logger
 from frontend.panels.robot_config_panel import RobotConfigPanel
 from frontend.panels.kinematic_chain_panel import KinematicChainPanel
 from frontend.panels.accordion_section import AccordionSection
+
+
+_log = get_logger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -229,19 +231,15 @@ class MainWindow(QMainWindow):
         # Legacy attribute preserved so any existing code referencing
         # self.simulator still works during transition to SimWorker.
         self.simulator = None
-        self.interactive_controller = None
 
-        # P3-T2: Calibration offsets — subtracted from raw r/p/y before filter.
-        # Set by _on_calibrate(); reset to [0,0,0] on new connect.
-        # Stores RAW angles at click-time (before any filter, since filter is
-        # not yet integrated; Part 2 P2-T5 subtracts these in _on_sample_received).
-        self.calib_offset: list[float] = [0.0, 0.0, 0.0]
+        # Raw r,p,y from the latest producer sample (before calibration subtract).
+        self._last_raw_rpy: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
         # ── Part 2: sensor pipeline state (P2-T5) ────────────────────────
         # Active worker (SimWorker | ReplayWorker | None)
         self._active_worker = None
 
-        # Calibration offsets — written by Part 3 via set_calibration_offsets()
+        # Calibration: subtract these raw-sensor values once before the filter.
         self._cal_r: float = 0.0
         self._cal_p: float = 0.0
         self._cal_y: float = 0.0
@@ -441,8 +439,9 @@ class MainWindow(QMainWindow):
             QPushButton:pressed { background-color: #131313; }
         """)
         self.btn_calibrate.setToolTip(
-            "Capture current angles as zero-reference.\n"
-            "Future samples will subtract these offsets."
+            "Capture latest raw R/P/Y from the producer as zero.\n"
+            "Offsets are subtracted once before the complementary filter.\n"
+            "Shortcut: Ctrl+K"
         )
         self.btn_calibrate.clicked.connect(self._on_calibrate)
         calib_row.addWidget(self.btn_calibrate)
@@ -587,6 +586,10 @@ class MainWindow(QMainWindow):
         self._on_robot_config_changed(self.kinematics_config)
         self._update_panel_visibility()
 
+        cal_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        cal_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        cal_shortcut.activated.connect(self._on_calibrate)
+
         # ── Auto-replay (--replay CLI flag) ───────────────────────────────
         # Deferred via singleShot(0) so the window is fully rendered first.
         if self._replay_path:
@@ -617,7 +620,7 @@ class MainWindow(QMainWindow):
         self.centralWidget().repaint()
 
     def _on_mode_changed(self, mode: str):
-        """Connection mode changed (simulation/interactive)."""
+        """Data source pill changed (Simulate / Replay / Serial)."""
         self._update_panel_visibility()
         self._configure_trajectory_panel_mode()
         try:
@@ -628,15 +631,28 @@ class MainWindow(QMainWindow):
         self.centralWidget().repaint()
 
     def _update_panel_visibility(self):
+        """Trajectory panel: manual IK only while no producer streams angles.
+
+        Simulate + connected → SimWorker owns the arm (hide trajectory).
+        Replay + connected → file owns the arm (hide trajectory).
+        Disconnected → user can drag IK sliders.
+        """
+        replay_live = (
+            self.connection_panel._current_mode == "Replay"
+            and self.connection_panel.is_connected
+        )
+        sim_live = (
+            self.connection_panel._current_mode == "Simulate"
+            and self.connection_panel.is_connected
+        )
+        show_trajectory = not replay_live and not sim_live
         if self.mode == 'standard':
             self.section_robot_params.setVisible(True)
-            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
-            self.section_joint_control.setVisible(is_interactive)
+            self.section_joint_control.setVisible(show_trajectory)
             self.section_chain.setVisible(False)
         else:
             self.section_robot_params.setVisible(False)
-            is_interactive = (self.connection_panel.mode_combo.currentText() == "Interactive")
-            self.section_joint_control.setVisible(is_interactive)
+            self.section_joint_control.setVisible(show_trajectory)
             self.section_chain.setVisible(True)
 
     def _update_status_bar_mode(self):
@@ -654,18 +670,16 @@ class MainWindow(QMainWindow):
 
     def _on_connect_requested(self, port: str, baud: int):
         self._stop_current_mode()
-        if port == "INTERACTIVE":
-            self._start_interactive()
-        elif port == "SIMULATED (no hardware)":
+        if port == "SIMULATED (no hardware)":
             self._start_simulation()
         elif port.startswith("REPLAY:"):
-            # Part 3 connection_panel emits "REPLAY:<path>" for the Replay mode
             replay_file = port[len("REPLAY:"):]
             self._start_replay(replay_file)
         else:
             self.connection_panel.set_status(f"Real serial not yet implemented: {port}")
             self.connection_panel.set_connected(False)
         self._update_status_bar_mode()
+        self._update_panel_visibility()
 
     def _on_disconnect_requested(self):
         self._stop_current_mode()
@@ -673,14 +687,16 @@ class MainWindow(QMainWindow):
         self.connection_panel.set_status("Disconnected")
         self.sb_message.setText("Disconnected")
         self._update_status_bar_mode()
+        self._update_panel_visibility()
 
     def _start_simulation(self):
         """Start the SimWorker (P2-T3) — replaces inline Simulator."""
         from backend.sim_worker import SimWorker
         worker = SimWorker()
-        worker.sample_received.connect(self._on_sample_received)
-        worker.producer_status.connect(self._on_producer_status)
-        worker.producer_error.connect(self._on_producer_error)
+        qc = Qt.ConnectionType.QueuedConnection
+        worker.sample_received.connect(self._on_sample_received, qc)
+        worker.producer_status.connect(self._on_producer_status, qc)
+        worker.producer_error.connect(self._on_producer_error, qc)
         self._active_worker = worker
         worker.start()
         # Keep legacy self.simulator alias so any remaining references don't crash
@@ -688,25 +704,22 @@ class MainWindow(QMainWindow):
         self.connection_panel.set_connected(True)
         self.connection_panel.set_status("Simulation running")
         self.sb_message.setText("Simulation mode active")
+        self._update_panel_visibility()
 
     def _start_replay(self, file_path: str):
         """Start the ReplayWorker (P2-T2) for a given CSV file path."""
         from backend.replay_worker import ReplayWorker
         worker = ReplayWorker(file_path)
-        worker.sample_received.connect(self._on_sample_received)
-        worker.producer_error.connect(self._on_producer_error)
-        worker.producer_status.connect(self._on_producer_status)
+        qc = Qt.ConnectionType.QueuedConnection
+        worker.sample_received.connect(self._on_sample_received, qc)
+        worker.producer_error.connect(self._on_producer_error, qc)
+        worker.producer_status.connect(self._on_producer_status, qc)
         self._active_worker = worker
         worker.start()
         self.connection_panel.set_connected(True)
         self.connection_panel.set_status(f"Replay: {Path(file_path).name}")
         self.sb_message.setText(f"Replaying {Path(file_path).name}")
-
-    def _start_interactive(self):
-        self.interactive_controller = type('IC', (), {'active': True, 'target': [0.0, 0.0, 0.0]})()
-        self.connection_panel.set_connected(True)
-        self.connection_panel.set_status("Interactive — use sliders")
-        self.sb_message.setText("Interactive mode active")
+        self._update_panel_visibility()
 
     def _stop_current_mode(self):
         """Stop and join any active producer worker or legacy Simulator."""
@@ -723,14 +736,19 @@ class MainWindow(QMainWindow):
             self.simulator.stop()
             self.simulator = None
 
-        if self.interactive_controller:
-            self.interactive_controller.active = False
-            self.interactive_controller = None
         if hasattr(self, 'trajectory_panel') and getattr(self.trajectory_panel, 'animating', False):
             self.trajectory_panel._stop_clicked()
         self.arm_canvas._init_empty_plot()
-        # Reset packet counter for fresh connection
         self._packet_count = 0
+        self.set_calibration_offsets(0.0, 0.0, 0.0)
+        self._last_raw_rpy = (0.0, 0.0, 0.0)
+        if self._filter is not None:
+            self._filter.reset()
+        if hasattr(self, "lbl_calib_status"):
+            self.lbl_calib_status.setText("offsets: 0.0 / 0.0 / 0.0")
+            self.lbl_calib_status.setStyleSheet(
+                "color: #3f4850; font-size: 9px; font-family: 'Consolas', monospace;"
+            )
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Unified pipeline slot (P2-T5)
@@ -744,33 +762,33 @@ class MainWindow(QMainWindow):
           2. Record raw   — write to CSV before any transformation (--record).
           3. Calibrate    — subtract offsets set by Part 3 Calibrate button.
           4. Filter       — ComplementaryFilter.step() (skipped if --no-filter).
-          5. Packet count — increment for Part 3 packets/sec display.
-          6. Display      — call _on_data_received() with filtered r,p,y.
+          5. Display      — call _on_data_received() with filtered r,p,y.
         """
-        # 1. Error check
-        if sample.get("_error"):
-            self._on_producer_error(str(sample["_error"]))
-            return
+        try:
+            if sample.get("_error"):
+                self._on_producer_error(str(sample["_error"]))
+                return
 
-        # 2. Record raw dict (before calibration + filter for full fidelity)
-        if self._record_writer is not None:
-            self._append_record(sample)
+            raw_r = float(sample.get("r", 0.0))
+            raw_p = float(sample.get("p", 0.0))
+            raw_y = float(sample.get("y", 0.0))
+            self._last_raw_rpy = (raw_r, raw_p, raw_y)
 
-        # 3. Apply calibration offsets
-        r = float(sample.get("r", 0.0)) - self._cal_r
-        p = float(sample.get("p", 0.0)) - self._cal_p
-        y = float(sample.get("y", 0.0)) - self._cal_y
+            if self._record_writer is not None:
+                self._append_record(sample)
 
-        # 4. Complementary filter
-        if self._use_filter and self._filter is not None:
-            sample_adj = {**sample, "r": r, "p": p, "y": y}
-            r, p, y = self._filter.step(sample_adj)
+            r = raw_r - self._cal_r
+            p = raw_p - self._cal_p
+            y = raw_y - self._cal_y
 
-        # 5. Packet counter
-        self._packet_count += 1
+            if self._use_filter and self._filter is not None:
+                sample_adj = {**sample, "r": r, "p": p, "y": y}
+                r, p, y = self._filter.step(sample_adj)
 
-        # 6. Forward to display pipeline
-        self._on_data_received(r, p, y)
+            self._on_data_received(r, p, y)
+        except Exception:
+            _log.exception("Sensor pipeline error | sample=%r", sample)
+            self.sb_message.setText("Pipeline error — see logs/robosim.log")
 
     # ── Producer status / error helpers ────────────────────────────────────
 
@@ -781,6 +799,7 @@ class MainWindow(QMainWindow):
         if "complete" in message.lower() or "stopped" in message.lower():
             self.connection_panel.set_connected(False)
             self.connection_panel.set_status(message)
+            self._update_panel_visibility()
 
     def _on_producer_error(self, error: str) -> None:
         """Handle error signals from any producer worker."""
@@ -797,40 +816,22 @@ class MainWindow(QMainWindow):
 
     # ── Recording helpers (--record) ────────────────────────────────────────
 
-    # Contract CSV column order (mirrors sensor_contract REQUIRED_KEYS + gyros)
-    _RECORD_FIELDNAMES = ["t", "r", "p", "y", "gx", "gy", "gz"]
-
     def _open_record_csv(self, path: str) -> None:
         """Open the CSV file for recording and write the header row."""
         try:
-            record_path = Path(path)
-            record_path.parent.mkdir(parents=True, exist_ok=True)
-            self._record_file = open(record_path, "w", newline="", encoding="utf-8")
-            self._record_writer = csv.DictWriter(
-                self._record_file,
-                fieldnames=self._RECORD_FIELDNAMES,
-                extrasaction="ignore",
-            )
-            self._record_writer.writeheader()
-            self._record_file.flush()
+            from backend.recording import open_record_csv
+
+            self._record_file, self._record_writer = open_record_csv(path)
         except OSError as exc:
             self._record_file = None
             self._record_writer = None
-            # Logged; will surface via status bar if window is ready
-            print(f"[RecoRD] Failed to open {path}: {exc}")
+            _log.warning("Failed to open record CSV %s: %s", path, exc)
 
     def _append_record(self, sample: dict) -> None:
-        """Write one row to the record CSV, filling missing gyro keys with 0.0."""
-        row = {
-            "t":  sample.get("t",  0),
-            "r":  sample.get("r",  0.0),
-            "p":  sample.get("p",  0.0),
-            "y":  sample.get("y",  0.0),
-            "gx": sample.get("gx", 0.0),
-            "gy": sample.get("gy", 0.0),
-            "gz": sample.get("gz", 0.0),
-        }
-        self._record_writer.writerow(row)
+        """Write one row to the record CSV."""
+        from backend.recording import row_from_sample
+
+        self._record_writer.writerow(row_from_sample(sample))
 
     def _close_record_csv(self) -> None:
         """Flush and close the recording file handle."""
@@ -846,34 +847,24 @@ class MainWindow(QMainWindow):
     # ── Filter init helper ──────────────────────────────────────────────────
 
     def _init_filter(self) -> None:
-        """Lazy-import ComplementaryFilter from Part 1 (backend.filter).
-
-        If the module is not available yet (Part 1 still in progress),
-        self._filter remains None and raw angles are used as-is.
-        TODO: remove the ImportError guard once Part 1 lands.
-        """
+        """Initialise ComplementaryFilter unless ``--no-filter`` was passed."""
         try:
-            from backend.filter import ComplementaryFilter  # type: ignore
+            from backend.filter import ComplementaryFilter
+
             self._filter = ComplementaryFilter(alpha=0.98)
         except ImportError:
             self._filter = None
-            self.sb_message.setText(  # may not exist yet; safe no-op if called early
-                "backend.filter not found — running without ComplementaryFilter"
-            ) if hasattr(self, 'sb_message') else None
+            _log.warning("backend.filter import failed — running without ComplementaryFilter")
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Part 3 public API — called by panels, not by internal logic
     # ═══════════════════════════════════════════════════════════════════════
 
     def set_calibration_offsets(self, r: float, p: float, y: float) -> None:
-        """Store calibration offsets (called by Part 3 Calibrate button).
-
-        Subsequent samples will have ``(r - off_r, p - off_p, y - off_y)``
-        applied BEFORE the complementary filter step.
-        """
-        self._cal_r = r
-        self._cal_p = p
-        self._cal_y = y
+        """Store raw-sensor offsets subtracted once before the complementary filter."""
+        self._cal_r = float(r)
+        self._cal_p = float(p)
+        self._cal_y = float(y)
 
     def get_packet_count(self) -> int:
         """Return the total number of valid samples received since last connect.
@@ -883,29 +874,19 @@ class MainWindow(QMainWindow):
         """
         return self._packet_count
 
-    def set_idle_message(self, message: str) -> None:
-        """Forward an idle/overlay message to ArmCanvas (P3-T4).
-
-        Part 3 calls this when no producer is connected or replay has ended.
-        """
-        if hasattr(self, 'arm_canvas') and hasattr(self.arm_canvas, 'set_idle_message'):
-            self.arm_canvas.set_idle_message(message)
+    def set_idle_overlay_visible(self, visible: bool) -> None:
+        """Show or hide the arm canvas idle overlay (no streaming data)."""
+        if hasattr(self, "arm_canvas") and hasattr(self.arm_canvas, "set_idle_message"):
+            self.arm_canvas.set_idle_message(bool(visible))
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Data / kinematics handlers (preserved)
     # ═══════════════════════════════════════════════════════════════════════
 
     def _on_data_received(self, roll: float, pitch: float, yaw: float):
-        # TODO: connect to Part 2 _on_sample_received — this fallback handles
-        #       SimWorker data until the unified pipeline slot lands.
-        self.data_panel.record_sample()   # P3-T3: increment PKT/S counter
-
-        # P3-T2: Apply calibration offsets (raw angles, before future filter).
-        # TODO: Part 2 P2-T5 should subtract calib_offset inside _on_sample_received
-        #       before calling filter.step() — move this block there when it lands.
-        roll  -= self.calib_offset[0]
-        pitch -= self.calib_offset[1]
-        yaw   -= self.calib_offset[2]
+        """Display path — calibration + filtering already applied upstream."""
+        self.data_panel.record_sample()
+        self._packet_count += 1
 
         self.data_panel.update_values(roll, pitch, yaw)
         self.trajectory_panel.set_current_angles(roll, pitch, yaw)
@@ -914,24 +895,29 @@ class MainWindow(QMainWindow):
         self.arm_canvas.draw_arm(positions)
 
     def _on_target_angles(self, q1: float, q2: float, q3: float):
-        if self.interactive_controller and self.interactive_controller.active:
-            self.data_panel.update_values(q1, q2, q3)
-            if self.mode == 'standard':
-                self._apply_target_angles(q1, q2, q3)
-            else:
-                chain = self.chain_panel.chain
-                count = 0
-                for joint in chain.joints:
-                    if joint.type == 'revolute':
-                        if count == 0: joint.theta = q1
-                        elif count == 1: joint.theta = q2
-                        elif count == 2: joint.theta = q3
-                        count += 1
-                    if count >= 3:
-                        break
-                self.trajectory_panel.set_current_angles(q1, q2, q3)
-                self.chain_panel._compute_and_emit_fk()
-                self._refresh_arm_display()
+        """IK sliders — active only while disconnected (no streaming producer)."""
+        if self.connection_panel.is_connected:
+            return
+        self.data_panel.update_values(q1, q2, q3)
+        if self.mode == 'standard':
+            self._apply_target_angles(q1, q2, q3)
+        else:
+            chain = self.chain_panel.chain
+            count = 0
+            for joint in chain.joints:
+                if joint.type == 'revolute':
+                    if count == 0:
+                        joint.theta = q1
+                    elif count == 1:
+                        joint.theta = q2
+                    elif count == 2:
+                        joint.theta = q3
+                    count += 1
+                if count >= 3:
+                    break
+            self.trajectory_panel.set_current_angles(q1, q2, q3)
+            self.chain_panel._compute_and_emit_fk()
+            self._refresh_arm_display()
 
     def _apply_target_angles(self, q1: float, q2: float, q3: float):
         self.data_panel.update_values(q1, q2, q3)
@@ -1054,38 +1040,26 @@ class MainWindow(QMainWindow):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _on_calibrate(self):
-        """Capture current raw angles as zero-reference offsets (P3-T2).
-
-        After calibration, _on_data_received subtracts these values so the
-        arm rests at its neutral pose.  Works for both Simulate and Replay.
-        Offsets are reset to [0,0,0] when a new connection is started.
-        """
-        self.calib_offset = list(self.current_angles)   # snapshot raw r/p/y
-        r, p, y = self.calib_offset
+        """Capture latest raw r/p/y from the producer as the zero reference."""
+        if self._active_worker is None:
+            self.sb_message.setText("Connect Simulate or Replay before calibrating.")
+            return
+        r, p, y = self._last_raw_rpy
+        self.set_calibration_offsets(r, p, y)
+        if self._filter is not None:
+            self._filter.reset()
         self.lbl_calib_status.setText(f"offsets: {r:+.1f} / {p:+.1f} / {y:+.1f}")
         self.lbl_calib_status.setStyleSheet(
             "color: #f39c12; font-size: 9px; font-family: 'Consolas', monospace;"
         )
-        self.sb_message.setText(f"Calibrated — offsets R={r:+.1f}° P={p:+.1f}° Y={y:+.1f}°")
+        self.sb_message.setText(f"Calibrated — raw zero R={r:+.1f}° P={p:+.1f}° Y={y:+.1f}°")
 
     # ═══════════════════════════════════════════════════════════════════════
     #  P3-T5 — Error / status UX
     # ═══════════════════════════════════════════════════════════════════════
 
     def show_producer_error(self, message: str, fatal: bool = False) -> None:
-        """Surface a producer error in the UI (P3-T5).
-
-        Args:
-            message: Human-readable error string from producer_error signal.
-            fatal:   True  → QMessageBox.critical (blocking); also disconnects.
-                     False → status bar only (non-blocking); used for skipped
-                             malformed lines or parse warnings.
-
-        TODO: connect to Part 2 producer_error signal once workers exist:
-            worker.producer_error.connect(
-                lambda msg: self.show_producer_error(msg, fatal=True)
-            )
-        """
+        """Surface a producer error — optional fatal modal vs status-only."""
         if fatal:
             self._stop_current_mode()
             self.connection_panel.set_connected(False)
@@ -1153,10 +1127,8 @@ class MainWindow(QMainWindow):
             "<tr><td><b>F</b></td><td>Front view <i>(stub)</i></td></tr>"
             "<tr><td><b>S</b></td><td>Side view <i>(stub)</i></td></tr>"
             "<tr><td><b>T</b></td><td>Top view <i>(stub)</i></td></tr>"
-            "<tr><td><b>C</b></td><td>Calibrate <i>(stub)</i></td></tr>"
-            "<tr><td><b>Space</b></td><td>Connect / Disconnect <i>(stub)</i></td></tr>"
-            "</table><br>"
-            "<i>Stub shortcuts will be wired in the hardware-phase release.</i>"
+            "<tr><td><b>Ctrl+K</b></td><td>Calibrate (raw zero capture)</td></tr>"
+            "</table>"
         )
 
     # ═══════════════════════════════════════════════════════════════════════
