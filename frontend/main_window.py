@@ -2,13 +2,25 @@
 """
 MainWindow — Robotic Arm Simulation.
 Kinetic Obsidian dark engineering theme (Stitch "Kinetic Monolith" design system).
+
+Part 2 additions (P2-T5):
+  - Unified _on_sample_received() slot — single entry point for all producers.
+  - Calibration offsets stored on MainWindow; applied before filter.
+  - ComplementaryFilter from Part 1 lazily imported (fallback: identity).
+  - SimWorker / ReplayWorker replace the inline Simulator class.
+  - --record CSV writer opened at startup; raw dict written before filter.
+  - --replay auto-starts via QTimer.singleShot after window.show().
+  - Public API for Part 3: set_calibration_offsets(), get_packet_count(),
+    set_idle_message().
 """
 
+import csv
 import sys
+from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QCheckBox,
                               QButtonGroup, QRadioButton, QScrollArea,
-                              QStatusBar, QFrame, QSizePolicy)
+                              QStatusBar, QFrame, QSizePolicy, QMessageBox)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QFontDatabase, QColor
 
@@ -186,7 +198,22 @@ MODE_PILL_INACTIVE = """
 class MainWindow(QMainWindow):
     """Main application window — Kinetic Obsidian split-panel layout."""
 
-    def __init__(self):
+    def __init__(self, replay_path: str | None = None,
+                 record_path: str | None = None,
+                 use_filter: bool = True):
+        """
+        Parameters
+        ----------
+        replay_path:
+            Path to a CSV file to auto-replay after the window is shown.
+            Passed from ``--replay`` CLI flag.
+        record_path:
+            Path to write recorded sensor dicts (raw, pre-filter).
+            Passed from ``--record`` CLI flag.
+        use_filter:
+            When ``False`` the ComplementaryFilter is bypassed; raw r,p,y
+            are forwarded directly. Corresponds to ``--no-filter`` flag.
+        """
         super().__init__()
         self.setWindowTitle("RoboSim — Robotic Arm Simulation")
         self.resize(1400, 900)
@@ -195,12 +222,41 @@ class MainWindow(QMainWindow):
         # Apply global stylesheet
         self.setStyleSheet(GLOBAL_QSS)
 
-        # ── Shared state ──────────────────────────────────────────────────
+        # ── Shared kinematics state ───────────────────────────────────────
         self.kinematics_config = ArmConfig()
         self.current_angles = [0.0, 0.0, 0.0]
         self.mode = 'standard'
+        # Legacy attribute preserved so any existing code referencing
+        # self.simulator still works during transition to SimWorker.
         self.simulator = None
         self.interactive_controller = None
+
+        # ── Part 2: sensor pipeline state (P2-T5) ────────────────────────
+        # Active worker (SimWorker | ReplayWorker | None)
+        self._active_worker = None
+
+        # Calibration offsets — written by Part 3 via set_calibration_offsets()
+        self._cal_r: float = 0.0
+        self._cal_p: float = 0.0
+        self._cal_y: float = 0.0
+
+        # Filter — lazy import from Part 1; identity fallback if not yet available
+        self._use_filter: bool = use_filter
+        self._filter = None
+        if use_filter:
+            self._init_filter()
+
+        # Packet counter — incremented per valid sample; read by Part 3 (P3-T3)
+        self._packet_count: int = 0
+
+        # CSV recording (--record)
+        self._record_file = None
+        self._record_writer = None
+        if record_path:
+            self._open_record_csv(record_path)
+
+        # Auto-replay path (--replay) — started after window.show()
+        self._replay_path: str | None = replay_path
 
         # ── Central widget ────────────────────────────────────────────────
         central = QWidget()
@@ -489,6 +545,11 @@ class MainWindow(QMainWindow):
         self._on_robot_config_changed(self.kinematics_config)
         self._update_panel_visibility()
 
+        # ── Auto-replay (--replay CLI flag) ───────────────────────────────
+        # Deferred via singleShot(0) so the window is fully rendered first.
+        if self._replay_path:
+            QTimer.singleShot(0, self._schedule_auto_replay)
+
     # ═══════════════════════════════════════════════════════════════════════
     #  Mode management
     # ═══════════════════════════════════════════════════════════════════════
@@ -555,6 +616,10 @@ class MainWindow(QMainWindow):
             self._start_interactive()
         elif port == "SIMULATED (no hardware)":
             self._start_simulation()
+        elif port.startswith("REPLAY:"):
+            # Part 3 connection_panel emits "REPLAY:<path>" for the Replay mode
+            replay_file = port[len("REPLAY:"):]
+            self._start_replay(replay_file)
         else:
             self.connection_panel.set_status(f"Real serial not yet implemented: {port}")
             self.connection_panel.set_connected(False)
@@ -568,38 +633,32 @@ class MainWindow(QMainWindow):
         self._update_status_bar_mode()
 
     def _start_simulation(self):
-        import numpy as np
-        from PyQt6.QtCore import QObject, pyqtSignal as Signal
-
-        class Simulator(QObject):
-            data_updated = Signal(float, float, float)
-
-            def __init__(self, parent=None):
-                super().__init__(parent)
-                self.t = 0.0
-                self.timer = QTimer(parent)
-                self.timer.timeout.connect(self._update)
-
-            def start(self):
-                self.timer.start(50)
-
-            def stop(self):
-                self.timer.stop()
-
-            def _update(self):
-                self.t += 0.05
-                self.data_updated.emit(
-                    20 * np.sin(self.t * 0.5),
-                    15 * np.sin(self.t * 0.7 + 1),
-                    30 * np.sin(self.t * 0.3 + 2),
-                )
-
-        self.simulator = Simulator(self)
-        self.simulator.data_updated.connect(self._on_data_received)
-        self.simulator.start()
+        """Start the SimWorker (P2-T3) — replaces inline Simulator."""
+        from backend.sim_worker import SimWorker
+        worker = SimWorker()
+        worker.sample_received.connect(self._on_sample_received)
+        worker.producer_status.connect(self._on_producer_status)
+        worker.producer_error.connect(self._on_producer_error)
+        self._active_worker = worker
+        worker.start()
+        # Keep legacy self.simulator alias so any remaining references don't crash
+        self.simulator = worker
         self.connection_panel.set_connected(True)
         self.connection_panel.set_status("Simulation running")
         self.sb_message.setText("Simulation mode active")
+
+    def _start_replay(self, file_path: str):
+        """Start the ReplayWorker (P2-T2) for a given CSV file path."""
+        from backend.replay_worker import ReplayWorker
+        worker = ReplayWorker(file_path)
+        worker.sample_received.connect(self._on_sample_received)
+        worker.producer_error.connect(self._on_producer_error)
+        worker.producer_status.connect(self._on_producer_status)
+        self._active_worker = worker
+        worker.start()
+        self.connection_panel.set_connected(True)
+        self.connection_panel.set_status(f"Replay: {Path(file_path).name}")
+        self.sb_message.setText(f"Replaying {Path(file_path).name}")
 
     def _start_interactive(self):
         self.interactive_controller = type('IC', (), {'active': True, 'target': [0.0, 0.0, 0.0]})()
@@ -608,15 +667,187 @@ class MainWindow(QMainWindow):
         self.sb_message.setText("Interactive mode active")
 
     def _stop_current_mode(self):
-        if self.simulator:
+        """Stop and join any active producer worker or legacy Simulator."""
+        # Stop QThread workers (SimWorker / ReplayWorker)
+        if self._active_worker is not None:
+            self._active_worker.stop()
+            if not self._active_worker.wait(2000):  # 2 s timeout
+                self._active_worker.terminate()
+            self._active_worker = None
+            self.simulator = None  # keep legacy alias in sync
+
+        # Fallback: stop legacy QTimer-based simulator if somehow still alive
+        if self.simulator and hasattr(self.simulator, 'stop'):
             self.simulator.stop()
             self.simulator = None
+
         if self.interactive_controller:
             self.interactive_controller.active = False
             self.interactive_controller = None
         if hasattr(self, 'trajectory_panel') and getattr(self.trajectory_panel, 'animating', False):
             self.trajectory_panel._stop_clicked()
         self.arm_canvas._init_empty_plot()
+        # Reset packet counter for fresh connection
+        self._packet_count = 0
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Unified pipeline slot (P2-T5)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_sample_received(self, sample: dict) -> None:
+        """Single entry point for ALL producers (Sim, Replay, future Serial).
+
+        Pipeline:
+          1. Error check  — forward _error dicts to status UI.
+          2. Record raw   — write to CSV before any transformation (--record).
+          3. Calibrate    — subtract offsets set by Part 3 Calibrate button.
+          4. Filter       — ComplementaryFilter.step() (skipped if --no-filter).
+          5. Packet count — increment for Part 3 packets/sec display.
+          6. Display      — call _on_data_received() with filtered r,p,y.
+        """
+        # 1. Error check
+        if sample.get("_error"):
+            self._on_producer_error(str(sample["_error"]))
+            return
+
+        # 2. Record raw dict (before calibration + filter for full fidelity)
+        if self._record_writer is not None:
+            self._append_record(sample)
+
+        # 3. Apply calibration offsets
+        r = float(sample.get("r", 0.0)) - self._cal_r
+        p = float(sample.get("p", 0.0)) - self._cal_p
+        y = float(sample.get("y", 0.0)) - self._cal_y
+
+        # 4. Complementary filter
+        if self._use_filter and self._filter is not None:
+            sample_adj = {**sample, "r": r, "p": p, "y": y}
+            r, p, y = self._filter.step(sample_adj)
+
+        # 5. Packet counter
+        self._packet_count += 1
+
+        # 6. Forward to display pipeline
+        self._on_data_received(r, p, y)
+
+    # ── Producer status / error helpers ────────────────────────────────────
+
+    def _on_producer_status(self, message: str) -> None:
+        """Handle status messages from any producer worker."""
+        self.sb_message.setText(message)
+        # When replay completes, update connection panel
+        if "complete" in message.lower() or "stopped" in message.lower():
+            self.connection_panel.set_connected(False)
+            self.connection_panel.set_status(message)
+
+    def _on_producer_error(self, error: str) -> None:
+        """Handle error signals from any producer worker."""
+        self.connection_panel.set_status(f"Error: {error}")
+        self.connection_panel.set_connected(False)
+        self.sb_message.setText(f"Producer error: {error}")
+        # Non-blocking error notification (modal-free for replay errors)
+        QMessageBox.warning(
+            self,
+            "Producer Error",
+            error,
+            QMessageBox.StandardButton.Ok,
+        )
+
+    # ── Recording helpers (--record) ────────────────────────────────────────
+
+    # Contract CSV column order (mirrors sensor_contract REQUIRED_KEYS + gyros)
+    _RECORD_FIELDNAMES = ["t", "r", "p", "y", "gx", "gy", "gz"]
+
+    def _open_record_csv(self, path: str) -> None:
+        """Open the CSV file for recording and write the header row."""
+        try:
+            record_path = Path(path)
+            record_path.parent.mkdir(parents=True, exist_ok=True)
+            self._record_file = open(record_path, "w", newline="", encoding="utf-8")
+            self._record_writer = csv.DictWriter(
+                self._record_file,
+                fieldnames=self._RECORD_FIELDNAMES,
+                extrasaction="ignore",
+            )
+            self._record_writer.writeheader()
+            self._record_file.flush()
+        except OSError as exc:
+            self._record_file = None
+            self._record_writer = None
+            # Logged; will surface via status bar if window is ready
+            print(f"[RecoRD] Failed to open {path}: {exc}")
+
+    def _append_record(self, sample: dict) -> None:
+        """Write one row to the record CSV, filling missing gyro keys with 0.0."""
+        row = {
+            "t":  sample.get("t",  0),
+            "r":  sample.get("r",  0.0),
+            "p":  sample.get("p",  0.0),
+            "y":  sample.get("y",  0.0),
+            "gx": sample.get("gx", 0.0),
+            "gy": sample.get("gy", 0.0),
+            "gz": sample.get("gz", 0.0),
+        }
+        self._record_writer.writerow(row)
+
+    def _close_record_csv(self) -> None:
+        """Flush and close the recording file handle."""
+        if self._record_file is not None:
+            try:
+                self._record_file.flush()
+                self._record_file.close()
+            except OSError:
+                pass
+            self._record_file = None
+            self._record_writer = None
+
+    # ── Filter init helper ──────────────────────────────────────────────────
+
+    def _init_filter(self) -> None:
+        """Lazy-import ComplementaryFilter from Part 1 (backend.filter).
+
+        If the module is not available yet (Part 1 still in progress),
+        self._filter remains None and raw angles are used as-is.
+        TODO: remove the ImportError guard once Part 1 lands.
+        """
+        try:
+            from backend.filter import ComplementaryFilter  # type: ignore
+            self._filter = ComplementaryFilter(alpha=0.98)
+        except ImportError:
+            self._filter = None
+            self.sb_message.setText(  # may not exist yet; safe no-op if called early
+                "backend.filter not found — running without ComplementaryFilter"
+            ) if hasattr(self, 'sb_message') else None
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Part 3 public API — called by panels, not by internal logic
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def set_calibration_offsets(self, r: float, p: float, y: float) -> None:
+        """Store calibration offsets (called by Part 3 Calibrate button).
+
+        Subsequent samples will have ``(r - off_r, p - off_p, y - off_y)``
+        applied BEFORE the complementary filter step.
+        """
+        self._cal_r = r
+        self._cal_p = p
+        self._cal_y = y
+
+    def get_packet_count(self) -> int:
+        """Return the total number of valid samples received since last connect.
+
+        Part 3 reads this on a 1-second QTimer to compute packets/sec (P3-T3).
+        Reset to zero on each new _stop_current_mode() call.
+        """
+        return self._packet_count
+
+    def set_idle_message(self, message: str) -> None:
+        """Forward an idle/overlay message to ArmCanvas (P3-T4).
+
+        Part 3 calls this when no producer is connected or replay has ended.
+        """
+        if hasattr(self, 'arm_canvas') and hasattr(self.arm_canvas, 'set_idle_message'):
+            self.arm_canvas.set_idle_message(message)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Data / kinematics handlers (preserved)
@@ -764,3 +995,24 @@ class MainWindow(QMainWindow):
         if hasattr(self.arm_canvas, 'toggle_ground'):
             self.arm_canvas.toggle_ground(checked)
             self.sb_message.setText("Ground " + ("shown" if checked else "hidden"))
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Window lifecycle
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _schedule_auto_replay(self) -> None:
+        """Auto-start replay after the event loop begins (P2-T4).
+
+        Called via QTimer.singleShot(0, …) from _setup_right_panel so the
+        window is fully shown before replay starts.
+        """
+        if self._replay_path:
+            self._stop_current_mode()
+            self._start_replay(self._replay_path)
+            self._update_status_bar_mode()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Clean up worker threads and open file handles on window close."""
+        self._stop_current_mode()
+        self._close_record_csv()
+        super().closeEvent(event)
