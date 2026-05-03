@@ -20,9 +20,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QCheckBox,
                               QButtonGroup, QRadioButton, QScrollArea,
-                              QStatusBar, QFrame, QSizePolicy, QMessageBox)
+                              QStatusBar, QFrame, QSizePolicy, QMenu, QMessageBox, QMessageBox)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QFontDatabase, QColor
+from PyQt6.QtGui import QFont, QFontDatabase, QColor, QAction
 
 from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof, KinematicChain
 from frontend.panels.robot_config_panel import RobotConfigPanel
@@ -231,6 +231,12 @@ class MainWindow(QMainWindow):
         self.simulator = None
         self.interactive_controller = None
 
+        # P3-T2: Calibration offsets — subtracted from raw r/p/y before filter.
+        # Set by _on_calibrate(); reset to [0,0,0] on new connect.
+        # Stores RAW angles at click-time (before any filter, since filter is
+        # not yet integrated; Part 2 P2-T5 subtracts these in _on_sample_received).
+        self.calib_offset: list[float] = [0.0, 0.0, 0.0]
+
         # ── Part 2: sensor pipeline state (P2-T5) ────────────────────────
         # Active worker (SimWorker | ReplayWorker | None)
         self._active_worker = None
@@ -264,6 +270,9 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # ── Menu bar (P3-T7) ──────────────────────────────────────────────
+        self._setup_menu_bar()
 
         # ── Title bar ─────────────────────────────────────────────────────
         title_bar = self._make_title_bar()
@@ -411,6 +420,39 @@ class MainWindow(QMainWindow):
         params_layout.setContentsMargins(0, 0, 0, 0)
         params_layout.setSpacing(10)
         params_layout.addWidget(self.robot_config_panel)
+
+        # ── Calibration row (P3-T2) ───────────────────────────────────────
+        calib_row = QHBoxLayout()
+        calib_row.setSpacing(8)
+
+        self.btn_calibrate = QPushButton("⊕  Calibrate")
+        self.btn_calibrate.setStyleSheet("""
+            QPushButton {
+                background-color: #202020;
+                color: #f39c12;
+                border: 1px solid #353535;
+                border-radius: 4px;
+                padding: 5px 12px;
+                font-size: 10px;
+                font-weight: 600;
+                min-height: 26px;
+            }
+            QPushButton:hover { background-color: #2a2a2a; border-color: #f39c12; }
+            QPushButton:pressed { background-color: #131313; }
+        """)
+        self.btn_calibrate.setToolTip(
+            "Capture current angles as zero-reference.\n"
+            "Future samples will subtract these offsets."
+        )
+        self.btn_calibrate.clicked.connect(self._on_calibrate)
+        calib_row.addWidget(self.btn_calibrate)
+
+        self.lbl_calib_status = QLabel("offsets: 0.0 / 0.0 / 0.0")
+        self.lbl_calib_status.setStyleSheet(
+            "color: #3f4850; font-size: 9px; font-family: 'Consolas', monospace;"
+        )
+        calib_row.addWidget(self.lbl_calib_status, 1)
+        params_layout.addLayout(calib_row)
 
         # Joint angles sub-label
         lbl_joints = QLabel("JOINT ANGLES")
@@ -854,6 +896,17 @@ class MainWindow(QMainWindow):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _on_data_received(self, roll: float, pitch: float, yaw: float):
+        # TODO: connect to Part 2 _on_sample_received — this fallback handles
+        #       SimWorker data until the unified pipeline slot lands.
+        self.data_panel.record_sample()   # P3-T3: increment PKT/S counter
+
+        # P3-T2: Apply calibration offsets (raw angles, before future filter).
+        # TODO: Part 2 P2-T5 should subtract calib_offset inside _on_sample_received
+        #       before calling filter.step() — move this block there when it lands.
+        roll  -= self.calib_offset[0]
+        pitch -= self.calib_offset[1]
+        yaw   -= self.calib_offset[2]
+
         self.data_panel.update_values(roll, pitch, yaw)
         self.trajectory_panel.set_current_angles(roll, pitch, yaw)
         self.current_angles = [roll, pitch, yaw]
@@ -995,6 +1048,116 @@ class MainWindow(QMainWindow):
         if hasattr(self.arm_canvas, 'toggle_ground'):
             self.arm_canvas.toggle_ground(checked)
             self.sb_message.setText("Ground " + ("shown" if checked else "hidden"))
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  P3-T2 — Calibration
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_calibrate(self):
+        """Capture current raw angles as zero-reference offsets (P3-T2).
+
+        After calibration, _on_data_received subtracts these values so the
+        arm rests at its neutral pose.  Works for both Simulate and Replay.
+        Offsets are reset to [0,0,0] when a new connection is started.
+        """
+        self.calib_offset = list(self.current_angles)   # snapshot raw r/p/y
+        r, p, y = self.calib_offset
+        self.lbl_calib_status.setText(f"offsets: {r:+.1f} / {p:+.1f} / {y:+.1f}")
+        self.lbl_calib_status.setStyleSheet(
+            "color: #f39c12; font-size: 9px; font-family: 'Consolas', monospace;"
+        )
+        self.sb_message.setText(f"Calibrated — offsets R={r:+.1f}° P={p:+.1f}° Y={y:+.1f}°")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  P3-T5 — Error / status UX
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def show_producer_error(self, message: str, fatal: bool = False) -> None:
+        """Surface a producer error in the UI (P3-T5).
+
+        Args:
+            message: Human-readable error string from producer_error signal.
+            fatal:   True  → QMessageBox.critical (blocking); also disconnects.
+                     False → status bar only (non-blocking); used for skipped
+                             malformed lines or parse warnings.
+
+        TODO: connect to Part 2 producer_error signal once workers exist:
+            worker.producer_error.connect(
+                lambda msg: self.show_producer_error(msg, fatal=True)
+            )
+        """
+        if fatal:
+            self._stop_current_mode()
+            self.connection_panel.set_connected(False)
+            self.connection_panel.set_status("Error — connection stopped")
+            self._update_status_bar_mode()
+            QMessageBox.critical(
+                self,
+                "Replay / Producer Error",
+                f"⚠  {message}\n\nThe data source has been stopped."
+            )
+        else:
+            # Non-fatal: show transiently in status bar (non-blocking)
+            self.sb_message.setText(f"⚠ {message}")
+            self.sb_message.setStyleSheet("color: #f39c12; font-size: 10px;")
+            # Reset style after 5 s so bar doesn’t stay amber forever
+            QTimer.singleShot(
+                5000,
+                lambda: self.sb_message.setStyleSheet("color: #89929b; font-size: 10px;")
+            )
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  P3-T7 — Help menu (About + Keyboard Shortcuts)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _setup_menu_bar(self) -> None:
+        """Create the application menu bar with a Help menu (P3-T7)."""
+        menu_bar = self.menuBar()
+
+        help_menu = menu_bar.addMenu("&Help")
+
+        act_about = QAction("&About RoboSim", self)
+        act_about.setShortcut("F1")
+        act_about.triggered.connect(self._show_about)
+        help_menu.addAction(act_about)
+
+        act_shortcuts = QAction("&Keyboard Shortcuts", self)
+        act_shortcuts.setShortcut("Ctrl+/")
+        act_shortcuts.triggered.connect(self._show_shortcuts)
+        help_menu.addAction(act_shortcuts)
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About RoboSim",
+            "<b>RoboSim</b> — Robotic Arm Simulation Platform<br>"
+            "<b>Version:</b> 0.1 (MVP — Software Phase)<br><br>"
+            "Real-time simulation of a 3-DOF robotic arm driven by an<br>"
+            "ESP32 + MPU-6050 sensor glove (hardware phase pending).<br><br>"
+            "<b>Stack:</b> Python 3 · PyQt6 · Matplotlib · NumPy<br>"
+            "<b>Theme:</b> Kinetic Obsidian (dark engineering)<br><br>"
+            "Parallel build: Part 1 (pipeline) · Part 2 (workers) · "
+            "Part 3 (UI/UX)"
+        )
+
+    def _show_shortcuts(self) -> None:
+        QMessageBox.information(
+            self,
+            "Keyboard Shortcuts",
+            "<b>Keyboard Shortcuts</b><br><br>"
+            "<table cellspacing='4'>"
+            "<tr><td><b>F1</b></td><td>About RoboSim</td></tr>"
+            "<tr><td><b>Ctrl+/</b></td><td>This dialog</td></tr>"
+            "<tr><td colspan='2'><hr></td></tr>"
+            "<tr><td><b>I</b></td><td>Isometric view <i>(stub)</i></td></tr>"
+            "<tr><td><b>F</b></td><td>Front view <i>(stub)</i></td></tr>"
+            "<tr><td><b>S</b></td><td>Side view <i>(stub)</i></td></tr>"
+            "<tr><td><b>T</b></td><td>Top view <i>(stub)</i></td></tr>"
+            "<tr><td><b>C</b></td><td>Calibrate <i>(stub)</i></td></tr>"
+            "<tr><td><b>Space</b></td><td>Connect / Disconnect <i>(stub)</i></td></tr>"
+            "</table><br>"
+            "<i>Stub shortcuts will be wired in the hardware-phase release.</i>"
+        )
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Window lifecycle
