@@ -450,7 +450,7 @@ class KinematicChainPanel(QWidget):
     def _needs_slider_rebuild(self) -> bool:
         # Check if any joint's type or variable status changed relative to existing sliders count
         expected_variable = sum(1 for j in self.chain.joints if j.type in ('revolute', 'prismatic'))
-        return len(self._variable_joint_sliders) != expected_variable
+        return len(self.sliders) != expected_variable
 
     def _on_delete_joint(self, index: int):
         if len(self.chain.joints) <= 1:

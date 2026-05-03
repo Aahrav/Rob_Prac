@@ -391,7 +391,7 @@ class MainWindow(QMainWindow):
         """Build all accordion sections in the left sidebar."""
 
         # ── SECTION 1: Mode & Connection ──────────────────────────────────
-        self.section_mode = AccordionSection("Mode & Connection")
+        self.section_mode = AccordionSection("Mode & Connection TEST")
 
         from frontend.panels.connection_panel import ConnectionPanel
         self.connection_panel = ConnectionPanel()
@@ -405,6 +405,18 @@ class MainWindow(QMainWindow):
         mode_layout.addWidget(self.connection_panel)
         self.section_mode.setContentLayout(mode_layout)
         self.left_layout.addWidget(self.section_mode)
+
+        # ── SECTION 1.5: Robot Models Library (Presets) ───────────────────
+        self.section_presets = AccordionSection("Robot Library")
+        from frontend.panels.robot_presets_panel import RobotPresetsPanel
+        self.presets_panel = RobotPresetsPanel()
+        self.presets_panel.load_requested.connect(self._on_preset_loaded)
+
+        preset_layout = QVBoxLayout()
+        preset_layout.setContentsMargins(0, 0, 0, 0)
+        preset_layout.addWidget(self.presets_panel)
+        self.section_presets.setContentLayout(preset_layout)
+        self.left_layout.addWidget(self.section_presets)
 
         # ── SECTION 2: Robot Parameters ───────────────────────────────────
         self.section_robot_params = AccordionSection("Robot Parameters")
@@ -599,6 +611,20 @@ class MainWindow(QMainWindow):
     #  Mode management
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _on_preset_loaded(self, preset_name: str):
+        """Called when a preset is loaded from the Robot Library."""
+        from backend.robot_presets import get_preset
+        preset_chain = get_preset(preset_name)
+        if not preset_chain:
+            return
+            
+        # Switch to Custom DH mode if not already
+        if self.mode != 'custom':
+            self._set_robot_mode('custom')
+            
+        # Pass the chain to the kinematic panel
+        self.chain_panel.set_chain(preset_chain)
+
     def _set_robot_mode(self, mode: str):
         """Switch between 'standard' and 'custom' robot modes."""
         if mode == self.mode:
@@ -648,10 +674,12 @@ class MainWindow(QMainWindow):
         show_trajectory = not replay_live and not sim_live
         if self.mode == 'standard':
             self.section_robot_params.setVisible(True)
+            self.section_presets.setVisible(True)
             self.section_joint_control.setVisible(show_trajectory)
             self.section_chain.setVisible(False)
         else:
             self.section_robot_params.setVisible(False)
+            self.section_presets.setVisible(True)
             self.section_joint_control.setVisible(show_trajectory)
             self.section_chain.setVisible(True)
 

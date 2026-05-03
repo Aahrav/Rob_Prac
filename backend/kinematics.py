@@ -320,13 +320,15 @@ class KinematicChain:
         transforms = [T_base]
 
         for i, joint in enumerate(self.joints):
-            # Get variable for this joint
+            # Check if we have an angle override for this specific joint index
+            q_val = joint_angles[i] if (joint_angles and i < len(joint_angles)) else None
+
             if joint.type == 'revolute':
-                theta = np.radians(joint_angles[i] if joint_angles else joint.theta)
+                theta = np.radians(q_val if q_val is not None else joint.theta)
                 d = joint.d
             elif joint.type == 'prismatic':
                 theta = np.radians(joint.theta)
-                d = joint.d + (joint_angles[i] if joint_angles else 0.0)
+                d = joint.d + (q_val if q_val is not None else 0.0)
             else:  # fixed
                 theta = np.radians(joint.theta)
                 d = joint.d
