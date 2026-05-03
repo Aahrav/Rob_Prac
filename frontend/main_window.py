@@ -46,112 +46,162 @@ QMainWindow, QWidget {
 
 /* ── Scrollbars ───────────────────────────────────────────────────────── */
 QScrollBar:vertical {
-    background: #131313;
-    width: 8px;
-    margin: 0;
+    background: transparent;
+    width: 7px;
+    margin: 2px 1px;
     border: none;
 }
 QScrollBar::handle:vertical {
-    background: #353535;
-    border-radius: 4px;
-    min-height: 30px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    min-height: 36px;
 }
-QScrollBar::handle:vertical:hover { background: #454548; }
+QScrollBar::handle:vertical:hover { background: rgba(255, 255, 255, 0.15); }
+QScrollBar::handle:vertical:pressed { background: rgba(52, 152, 219, 0.4); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 
 QScrollBar:horizontal {
-    background: #131313;
-    height: 6px;
+    background: transparent;
+    height: 5px;
     border: none;
 }
-QScrollBar::handle:horizontal { background: #353535; border-radius: 3px; }
+QScrollBar::handle:horizontal {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+}
+QScrollBar::handle:horizontal:hover { background: rgba(255, 255, 255, 0.15); }
 
 /* ── Splitter ─────────────────────────────────────────────────────────── */
-QSplitter::handle { background-color: #0e0e0e; width: 2px; }
+QSplitter::handle {
+    background-color: #0a0a0a;
+    width: 2px;
+}
 QSplitter::handle:horizontal { width: 2px; }
+QSplitter::handle:hover { background-color: #3498db; }
 
 /* ── Tooltips ─────────────────────────────────────────────────────────── */
 QToolTip {
-    background-color: #202020;
-    color: #e5e2e1;
-    border: 1px solid #353535;
-    border-radius: 4px;
-    padding: 4px 8px;
+    background-color: #1e2228;
+    color: #dbe3ed;
+    border: 1px solid rgba(146, 204, 255, 0.15);
+    border-radius: 6px;
+    padding: 6px 10px;
     font-size: 11px;
+    font-family: "Inter", sans-serif;
 }
 
 /* ── Status bar ───────────────────────────────────────────────────────── */
 QStatusBar {
-    background-color: #0e0e0e;
+    background-color: #0a0a0a;
     color: #89929b;
-    border-top: 1px solid #1a1a1a;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
     font-size: 10px;
+    min-height: 26px;
+    padding: 2px 0;
 }
 QStatusBar::item { border: none; }
 
 /* ── Menu bar ─────────────────────────────────────────────────────────── */
 QMenuBar {
-    background-color: #0e0e0e;
+    background-color: #0a0a0a;
     color: #bfc7d2;
-    border-bottom: 1px solid #1a1a1a;
-    padding: 2px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 2px 4px;
+    font-size: 11px;
 }
-QMenuBar::item:selected { background-color: #202020; color: #e5e2e1; }
-QMenu {
-    background-color: #202020;
-    color: #e5e2e1;
-    border: 1px solid #353535;
+QMenuBar::item {
+    padding: 4px 10px;
     border-radius: 4px;
 }
-QMenu::item:selected { background-color: #3498db; color: #ffffff; }
-QMenu::separator { background-color: #353535; height: 1px; margin: 4px 8px; }
+QMenuBar::item:selected { background-color: #1e2228; color: #e5e2e1; }
+QMenu {
+    background-color: #1a1e24;
+    color: #e5e2e1;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 24px 6px 12px;
+    border-radius: 4px;
+    margin: 1px 4px;
+}
+QMenu::item:selected { background-color: rgba(52, 152, 219, 0.25); color: #92ccff; }
+QMenu::separator { background-color: rgba(255, 255, 255, 0.06); height: 1px; margin: 4px 8px; }
 
 /* ── Checkboxes ───────────────────────────────────────────────────────── */
-QCheckBox { color: #bfc7d2; spacing: 6px; }
+QCheckBox { color: #bfc7d2; spacing: 6px; font-size: 11px; }
 QCheckBox::indicator {
-    width: 14px; height: 14px;
-    border: 1px solid #353535;
-    border-radius: 3px;
+    width: 15px; height: 15px;
+    border: 1.5px solid #3f4850;
+    border-radius: 4px;
     background: #0e0e0e;
 }
-QCheckBox::indicator:checked { background: #3498db; border-color: #3498db; }
+QCheckBox::indicator:hover { border-color: #89929b; }
+QCheckBox::indicator:checked {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3498db, stop:1 #2980b9);
+    border-color: #3498db;
+}
 
 /* ── Radio Buttons ────────────────────────────────────────────────────── */
-QRadioButton { color: #bfc7d2; spacing: 6px; }
+QRadioButton { color: #bfc7d2; spacing: 6px; font-size: 11px; }
 QRadioButton::indicator {
-    width: 14px; height: 14px;
-    border: 1px solid #353535;
-    border-radius: 7px;
+    width: 15px; height: 15px;
+    border: 1.5px solid #3f4850;
+    border-radius: 8px;
     background: #0e0e0e;
 }
-QRadioButton::indicator:checked { background: #3498db; border-color: #92ccff; }
+QRadioButton::indicator:hover { border-color: #89929b; }
+QRadioButton::indicator:checked {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3498db, stop:1 #2980b9);
+    border-color: #92ccff;
+}
 
 /* ── Message boxes ────────────────────────────────────────────────────── */
-QMessageBox { background-color: #202020; }
-QMessageBox QPushButton {
-    background-color: #353535; color: #e5e2e1;
-    border: none; border-radius: 4px;
-    padding: 6px 16px; min-width: 80px;
+QMessageBox {
+    background-color: #1a1e24;
 }
-QMessageBox QPushButton:hover { background-color: #454548; }
+QMessageBox QLabel { color: #dbe3ed; font-size: 12px; }
+QMessageBox QPushButton {
+    background-color: #2a2e34;
+    color: #e5e2e1;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 8px 20px;
+    min-width: 80px;
+    font-weight: 600;
+    font-size: 11px;
+}
+QMessageBox QPushButton:hover { background-color: #353a42; border-color: rgba(52, 152, 219, 0.3); }
+QMessageBox QPushButton:pressed { background-color: #1a1e24; }
 """
 
 # ── Toolbar button style ───────────────────────────────────────────────────
 TOOLBAR_BTN = """
     QPushButton {
-        background-color: #202020;
+        background-color: #1a1e24;
         color: #89929b;
-        border: none;
-        border-radius: 4px;
-        padding: 4px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+        padding: 5px 14px;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 500;
         min-height: 26px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #2a2a2a; color: #e5e2e1; }
-    QPushButton:pressed { background-color: #131313; }
-    QPushButton:checked { background-color: #3498db; color: #ffffff; }
+    QPushButton:hover {
+        background-color: #222832;
+        color: #dbe3ed;
+        border-color: rgba(146, 204, 255, 0.12);
+    }
+    QPushButton:pressed { background-color: #0e1218; }
+    QPushButton:checked {
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3498db, stop:1 #2980b9);
+        color: #ffffff;
+        border-color: transparent;
+    }
 """
 
 TOOLBAR_BTN_RESET = """
@@ -160,40 +210,55 @@ TOOLBAR_BTN_RESET = """
             stop:0 #3498db, stop:1 #2980b9);
         color: #ffffff;
         border: none;
-        border-radius: 4px;
-        padding: 4px 14px;
+        border-radius: 6px;
+        padding: 5px 16px;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 600;
         min-height: 26px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #2980b9; }
+    QPushButton:hover {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 #2980b9, stop:1 #1f6aa5);
+    }
+    QPushButton:pressed { background-color: #1a5276; }
 """
 
 MODE_PILL_ACTIVE = """
     QPushButton {
-        background-color: #353535;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 rgba(52, 152, 219, 0.18), stop:1 rgba(52, 152, 219, 0.08));
         color: #92ccff;
-        border: 1px solid #3498db;
-        border-radius: 4px;
-        padding: 4px 12px;
+        border: 1.5px solid rgba(52, 152, 219, 0.5);
+        border-radius: 14px;
+        padding: 5px 14px;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-size: 11px;
         font-weight: 600;
         min-height: 26px;
+        letter-spacing: 0.02em;
     }
 """
 
 MODE_PILL_INACTIVE = """
     QPushButton {
-        background-color: #131313;
+        background-color: transparent;
         color: #89929b;
-        border: 1px solid #353535;
-        border-radius: 4px;
-        padding: 4px 12px;
+        border: 1.5px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 5px 14px;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-size: 11px;
         font-weight: 500;
         min-height: 26px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #202020; color: #bfc7d2; border-color: #454548; }
+    QPushButton:hover {
+        background-color: rgba(255, 255, 255, 0.03);
+        color: #bfc7d2;
+        border-color: rgba(255, 255, 255, 0.12);
+    }
 """
 
 
@@ -323,35 +388,65 @@ class MainWindow(QMainWindow):
 
     def _make_title_bar(self):
         bar = QFrame()
-        bar.setFixedHeight(46)
+        bar.setFixedHeight(48)
         bar.setStyleSheet("""
             QFrame {
-                background-color: #0e0e0e;
-                border-bottom: 1px solid #1a1a1a;
+                background-color: #0a0a0a;
+                border-bottom: 1px solid rgba(52, 152, 219, 0.12);
             }
         """)
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(12)
 
-        # App icon placeholder
+        # App icon with glow background
         icon_lbl = QLabel("⚙")
-        icon_lbl.setStyleSheet("color: #3498db; font-size: 18px; font-weight: 700;")
+        icon_lbl.setFixedSize(30, 30)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet("""
+            color: #92ccff;
+            font-size: 16px;
+            font-weight: 700;
+            background-color: rgba(52, 152, 219, 0.1);
+            border-radius: 6px;
+        """)
         layout.addWidget(icon_lbl)
 
         app_name = QLabel("RoboSim")
-        app_name.setStyleSheet("color: #e5e2e1; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;")
+        app_name.setStyleSheet("""
+            color: #e5e2e1;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        """)
         layout.addWidget(app_name)
 
+        # Thin separator
+        sep_lbl = QLabel("|")
+        sep_lbl.setStyleSheet("color: rgba(255,255,255,0.1); font-size: 16px; padding: 0 2px;")
+        layout.addWidget(sep_lbl)
+
         subtitle = QLabel("Robotic Arm Simulation")
-        subtitle.setStyleSheet("color: #3f4850; font-size: 11px;")
+        subtitle.setStyleSheet("""
+            color: #3f4850;
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            letter-spacing: 0.02em;
+        """)
         layout.addWidget(subtitle)
 
         layout.addStretch()
 
         # Mode toggle pills (Standard 3-DOF | Custom DH)
-        mode_lbl = QLabel("MODE:")
-        mode_lbl.setStyleSheet("color: #3f4850; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;")
+        mode_lbl = QLabel("MODE")
+        mode_lbl.setStyleSheet("""
+            color: #3f4850;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+        """)
         layout.addWidget(mode_lbl)
 
         self.btn_standard = QPushButton("Standard 3-DOF")
@@ -372,19 +467,37 @@ class MainWindow(QMainWindow):
         sb.setSizeGripEnabled(False)
 
         # Zone 1: mode indicator
-        self.sb_mode = QLabel("●  Standard 3-DOF  |  Disconnected")
-        self.sb_mode.setStyleSheet("color: #e74c3c; padding: 0 12px; font-size: 10px;")
+        self.sb_mode = QLabel("●  Standard 3-DOF  │  Disconnected")
+        self.sb_mode.setStyleSheet("""
+            color: #e74c3c;
+            padding: 0 14px;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        """)
         sb.addWidget(self.sb_mode)
 
         # Zone 2: message (permanent, center)
         self.sb_message = QLabel("Ready")
         self.sb_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sb_message.setStyleSheet("color: #89929b; font-size: 10px;")
+        self.sb_message.setStyleSheet("""
+            color: #89929b;
+            font-family: 'Space Grotesk', monospace;
+            font-size: 10px;
+            letter-spacing: 0.02em;
+        """)
         sb.addWidget(self.sb_message, 1)
 
-        # Zone 3: EE position
+        # Zone 3: EE position with colored axes
         self.sb_ee = QLabel("EE: (—, —, —)")
-        self.sb_ee.setStyleSheet("color: #3f4850; padding: 0 12px; font-size: 10px;")
+        self.sb_ee.setStyleSheet("""
+            color: #3f4850;
+            padding: 0 14px;
+            font-family: 'Space Grotesk', monospace;
+            font-size: 10px;
+            letter-spacing: 0.02em;
+        """)
         sb.addPermanentWidget(self.sb_ee)
 
     def _build_left_panel(self):
@@ -426,17 +539,22 @@ class MainWindow(QMainWindow):
         self.btn_calibrate = QPushButton("⊕  Calibrate")
         self.btn_calibrate.setStyleSheet("""
             QPushButton {
-                background-color: #202020;
+                background-color: rgba(243, 156, 18, 0.06);
                 color: #f39c12;
-                border: 1px solid #353535;
-                border-radius: 4px;
-                padding: 5px 12px;
+                border: 1px solid rgba(243, 156, 18, 0.2);
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-family: 'Space Grotesk', 'Inter', sans-serif;
                 font-size: 10px;
                 font-weight: 600;
                 min-height: 26px;
+                letter-spacing: 0.02em;
             }
-            QPushButton:hover { background-color: #2a2a2a; border-color: #f39c12; }
-            QPushButton:pressed { background-color: #131313; }
+            QPushButton:hover {
+                background-color: rgba(243, 156, 18, 0.12);
+                border-color: rgba(243, 156, 18, 0.4);
+            }
+            QPushButton:pressed { background-color: rgba(243, 156, 18, 0.04); }
         """)
         self.btn_calibrate.setToolTip(
             "Capture latest raw R/P/Y from the producer as zero.\n"
@@ -448,14 +566,20 @@ class MainWindow(QMainWindow):
 
         self.lbl_calib_status = QLabel("offsets: 0.0 / 0.0 / 0.0")
         self.lbl_calib_status.setStyleSheet(
-            "color: #3f4850; font-size: 9px; font-family: 'Consolas', monospace;"
+            "color: #3f4850; font-size: 9px; font-family: 'Space Grotesk', 'Consolas', monospace; letter-spacing: 0.02em;"
         )
         calib_row.addWidget(self.lbl_calib_status, 1)
         params_layout.addLayout(calib_row)
 
         # Joint angles sub-label
         lbl_joints = QLabel("JOINT ANGLES")
-        lbl_joints.setStyleSheet("color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;")
+        lbl_joints.setStyleSheet("""
+            color: #89929b;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+        """)
         params_layout.addWidget(lbl_joints)
         params_layout.addWidget(self.data_panel)
 
@@ -496,17 +620,19 @@ class MainWindow(QMainWindow):
         ee_card.setStyleSheet("""
             QFrame {
                 background-color: #0e0e0e;
-                border-radius: 4px;
+                border-radius: 6px;
+                border-left: 2px solid #3498db;
+                border: 1px solid rgba(255, 255, 255, 0.04);
                 border-left: 2px solid #3498db;
             }
         """)
         ee_card_layout = QVBoxLayout(ee_card)
-        ee_card_layout.setContentsMargins(10, 8, 10, 8)
+        ee_card_layout.setContentsMargins(12, 10, 12, 10)
         ee_card_layout.setSpacing(4)
 
         self.lbl_ee_status = QLabel("— awaiting data —")
         self.lbl_ee_status.setStyleSheet(
-            "color: #89929b; font-family: 'Consolas', monospace; font-size: 12px;"
+            "color: #89929b; font-family: 'Space Grotesk', 'Consolas', monospace; font-size: 12px; letter-spacing: 0.02em;"
         )
         self.lbl_ee_status.setWordWrap(True)
         ee_card_layout.addWidget(self.lbl_ee_status)
@@ -525,20 +651,26 @@ class MainWindow(QMainWindow):
 
         # ── Viewport toolbar ───────────────────────────────────────────────
         toolbar = QFrame()
-        toolbar.setFixedHeight(42)
+        toolbar.setFixedHeight(44)
         toolbar.setStyleSheet("""
             QFrame {
-                background-color: #0e0e0e;
-                border-bottom: 1px solid #1a1a1a;
+                background-color: #0a0a0a;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
             }
         """)
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(12, 0, 12, 0)
+        tb_layout.setContentsMargins(14, 0, 14, 0)
         tb_layout.setSpacing(6)
 
         # Camera label
-        cam_lbl = QLabel("CAMERA:")
-        cam_lbl.setStyleSheet("color: #3f4850; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;")
+        cam_lbl = QLabel("CAMERA")
+        cam_lbl.setStyleSheet("""
+            color: #3f4850;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+        """)
         tb_layout.addWidget(cam_lbl)
 
         # View preset buttons
@@ -551,13 +683,19 @@ class MainWindow(QMainWindow):
         # Separator
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet("color: #353535; background: #353535; border: none; max-width: 1px;")
+        sep.setStyleSheet("color: rgba(255,255,255,0.06); background: rgba(255,255,255,0.06); border: none; max-width: 1px;")
+        sep.setFixedHeight(20)
         tb_layout.addWidget(sep)
 
         # Ground toggle
         self.chk_ground = QCheckBox("Ground")
         self.chk_ground.setChecked(True)
-        self.chk_ground.setStyleSheet("color: #bfc7d2; font-size: 10px; spacing: 5px;")
+        self.chk_ground.setStyleSheet("""
+            color: #bfc7d2;
+            font-family: 'Inter', sans-serif;
+            font-size: 10px;
+            spacing: 6px;
+        """)
         self.chk_ground.toggled.connect(self._toggle_ground)
         tb_layout.addWidget(self.chk_ground)
 
@@ -661,8 +799,15 @@ class MainWindow(QMainWindow):
         is_connected = self.connection_panel.is_connected
         color = "#2ecc71" if is_connected else "#e74c3c"
         dot = "●"
-        self.sb_mode.setText(f"{dot}  {robot_mode}  |  {conn_mode}")
-        self.sb_mode.setStyleSheet(f"color: {color}; padding: 0 12px; font-size: 10px;")
+        self.sb_mode.setText(f"{dot}  {robot_mode}  │  {conn_mode}")
+        self.sb_mode.setStyleSheet(f"""
+            color: {color};
+            padding: 0 14px;
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        """)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Connection logic (preserved from original)
@@ -934,7 +1079,11 @@ class MainWindow(QMainWindow):
             f"<span style='color:#2ecc71;'>Y</span> {y:+.4f} m\n"
             f"<span style='color:#ffba4b;'>Z</span> {z:+.4f} m"
         )
-        self.sb_ee.setText(f"EE: ({x:.3f}, {y:.3f}, {z:.3f})")
+        self.sb_ee.setText(
+            f"EE: <span style='color:#92ccff;'>X</span>{x:+.3f}  "
+            f"<span style='color:#2ecc71;'>Y</span>{y:+.3f}  "
+            f"<span style='color:#ffba4b;'>Z</span>{z:+.3f}"
+        )
 
     def _on_robot_config_changed(self, config):
         self.kinematics_config = config

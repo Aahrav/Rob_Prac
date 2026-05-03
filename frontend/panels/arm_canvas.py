@@ -16,34 +16,34 @@ class ArmCanvas(FigureCanvas):
     """Matplotlib 3D canvas for rendering the robotic arm with 3D meshes and collision detection."""
 
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(9, 7), facecolor='#2d2d2d', dpi=100)
+        self.fig = Figure(figsize=(9, 7), facecolor='#0e0e0e', dpi=100)
         super().__init__(self.fig)
         self.setParent(parent)
 
         self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_facecolor('#2d2d2d')
-        self.ax.grid(True, color='#444')
+        self.ax.set_facecolor('#0e0e0e')
+        self.ax.grid(True, color='#1a1e24', alpha=0.5)
 
-        # Styling
-        self.ax.xaxis.label.set_color('#aaa')
-        self.ax.yaxis.label.set_color('#aaa')
-        self.ax.zaxis.label.set_color('#aaa')
-        self.ax.tick_params(colors='#aaa')
+        # Styling — muted axis labels for data clarity
+        self.ax.xaxis.label.set_color('#3f4850')
+        self.ax.yaxis.label.set_color('#3f4850')
+        self.ax.zaxis.label.set_color('#3f4850')
+        self.ax.tick_params(colors='#3f4850', labelsize=7)
 
         self.config = ArmConfig()
 
         # Colors
         self.default_colors = {
-            'base': '#666666',
-            'upper': '#95a5a6',
-            'lower': '#7f8c8d',
+            'base': '#4a5568',
+            'upper': '#8fa3b0',
+            'lower': '#6b7d8a',
             'gripper': '#e74c3c',
             'joint_shoulder': '#3498db',
             'joint_elbow': '#e67e22',
             'joint_wrist': '#2ecc71',
             'joint_tip': '#e74c3c',
         }
-        self.collision_color = '#ff0000'  # bright red for colliding parts
+        self.collision_color = '#ff3333'
 
         # Mesh collections (cleared and rebuilt each frame)
         self.meshes = {
@@ -80,17 +80,17 @@ class ArmCanvas(FigureCanvas):
             "No data\nChoose  Simulate  or  Replay",
             transform=self.fig.transFigure,
             ha='center', va='center',
-            fontsize=16,
+            fontsize=15,
             fontfamily='monospace',
-            color='#e5e2e1',
-            alpha=0.0,          # hidden until _init_empty_plot enables it
+            color='#89929b',
+            alpha=0.0,
             zorder=10,
             bbox=dict(
-                boxstyle='round,pad=0.8',
-                facecolor='#131313',
+                boxstyle='round,pad=1.0',
+                facecolor='#0a0a0a',
                 edgecolor='#3498db',
-                alpha=0.0,      # also hidden; set together via set_idle_message
-                linewidth=1.5,
+                alpha=0.0,
+                linewidth=1,
             ),
         )
 
@@ -165,18 +165,18 @@ class ArmCanvas(FigureCanvas):
         ])
         faces = [[0, 1, 2], [0, 2, 3]]
         ground = Poly3DCollection([corners[face] for face in faces],
-                                   facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
+                                   facecolors='#1a1e24', edgecolors='#222832', linewidths=0.3, alpha=0.15)
         self.ax.add_collection3d(ground)
         self.meshes['ground'] = ground
         self._ground_elements.append(ground)
 
-        # Grid lines every 0.25m (subtle)
+        # Grid lines every 0.25m (subtle, muted)
         step = 0.25
         for x in np.arange(-size, size + step, step):
-            line = self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
+            line = self.ax.plot([x, x], [-size, size], [0, 0], color='#2a2e34', linewidth=0.3, alpha=0.25)[0]
             self._ground_elements.append(line)
         for y in np.arange(-size, size + step, step):
-            line = self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
+            line = self.ax.plot([-size, size], [y, y], [0, 0], color='#2a2e34', linewidth=0.3, alpha=0.25)[0]
             self._ground_elements.append(line)
 
         # Workspace boundary: faint circle at ground (max XY reach 0.6m)
@@ -185,7 +185,7 @@ class ArmCanvas(FigureCanvas):
         x_circle = max_reach * np.cos(theta)
         y_circle = max_reach * np.sin(theta)
         z_circle = np.zeros_like(x_circle)
-        circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
+        circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#3498db', linewidth=0.6, alpha=0.15, linestyle='--')[0]
         self._ground_elements.append(circle_line)
         self._workspace_circle = circle_line  # store for later updates
 
@@ -370,7 +370,7 @@ class ArmCanvas(FigureCanvas):
             self._traj_line.remove()
         if self.trajectory_points:
             pts = np.array(self.trajectory_points)
-            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], 'r-', linewidth=1, alpha=0.7)[0]
+            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], color='#92ccff', linewidth=1.2, alpha=0.6)[0]
         else:
             self._traj_line = None
         self.draw_idle()

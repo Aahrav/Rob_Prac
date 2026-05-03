@@ -11,26 +11,29 @@ from frontend.panels.custom_combo_box import CustomComboBox
 
 
 # ── Style tokens ─────────────────────────────────────────────────────────────
-CARD_BG = "#202020"
-HEADER_BG = "#2a2a2a"
+CARD_BG = "#1a1e24"
+HEADER_BG = "#222832"
 
 SPIN_STYLE = """
     QDoubleSpinBox {
         background-color: #0e0e0e;
         color: #e5e2e1;
         padding: 4px 6px;
-        border: none;
-        border-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 4px;
+        font-family: 'Space Grotesk', 'Consolas', monospace;
         font-size: 11px;
         min-width: 70px;
     }
     QDoubleSpinBox:focus {
         border-bottom: 2px solid #3498db;
+        border-color: rgba(52, 152, 219, 0.3);
     }
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
         width: 16px;
-        background-color: #1b1b1c;
+        background-color: #1a1e24;
         border: none;
+        border-radius: 2px;
     }
 """
 
@@ -39,26 +42,30 @@ COMBO_STYLE = """
         background-color: #0e0e0e;
         color: #e5e2e1;
         padding: 4px 8px;
-        border: none;
-        border-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+        font-family: 'Inter', sans-serif;
         font-size: 11px;
     }
+    QComboBox:hover { border-color: rgba(255,255,255,0.1); }
     QComboBox::drop-down { border: none; width: 20px; }
     QComboBox::down-arrow { image: none; }
     QComboBox QAbstractItemView {
-        background-color: #202020;
+        background-color: #1a1e24;
         color: #e5e2e1;
-        selection-background-color: #3498db;
-        border: 1px solid #353535;
+        selection-background-color: rgba(52, 152, 219, 0.25);
+        selection-color: #92ccff;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
     }
 """
 
 BTN_ICON_STYLE = """
     QPushButton {
-        background-color: #353535;
+        background-color: rgba(255, 255, 255, 0.04);
         color: #bfc7d2;
-        border: none;
-        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
         font-size: 13px;
         font-weight: bold;
         min-width: 28px;
@@ -67,21 +74,22 @@ BTN_ICON_STYLE = """
         max-height: 24px;
         padding: 0;
     }
-    QPushButton:hover { background-color: #454548; color: #e5e2e1; }
-    QPushButton:pressed { background-color: #252527; }
+    QPushButton:hover { background-color: rgba(255, 255, 255, 0.08); color: #e5e2e1; border-color: rgba(255,255,255,0.12); }
+    QPushButton:pressed { background-color: rgba(255, 255, 255, 0.02); }
 """
 
 BTN_DELETE_STYLE = """
     QPushButton {
         background-color: transparent;
         color: #e74c3c;
-        border: 1px solid #93000a;
-        border-radius: 3px;
+        border: 1px solid rgba(231, 76, 60, 0.3);
+        border-radius: 4px;
+        font-family: 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 600;
         padding: 3px 10px;
     }
-    QPushButton:hover { background-color: #93000a; color: #ffdad6; }
+    QPushButton:hover { background-color: rgba(231, 76, 60, 0.1); color: #ffdad6; border-color: rgba(231, 76, 60, 0.5); }
 """
 
 BTN_EXPAND_STYLE = """
@@ -95,11 +103,11 @@ BTN_EXPAND_STYLE = """
         max-width: 22px;
         padding: 0;
     }
-    QPushButton:hover { color: #e5e2e1; }
+    QPushButton:hover { color: #92ccff; }
 """
 
-KEY_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;"
-TOOLTIP_STYLE = "color: #3f4850; font-size: 10px;"
+KEY_LABEL = "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;"
+TOOLTIP_STYLE = "color: #3f4850; font-family: 'Space Grotesk', monospace; font-size: 10px;"
 
 
 class JointCard(QWidget):
@@ -214,7 +222,7 @@ class JointCard(QWidget):
         # ── Action buttons row ────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #353535; border: none; max-height: 1px;")
+        sep.setStyleSheet("background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
         content_layout.addWidget(sep)
 
         btn_row = QHBoxLayout()

@@ -39,16 +39,16 @@ class JointCard(QGroupBox):
     def _setup_ui(self):
         _SPIN = _KCP_SPIN
         _COMBO = _KCP_COMBO
-        _KEY = "color: #89929b; font-size: 10px; font-weight: 600;"
+        _KEY = "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600;"
         _BTN_ICON = """
-            QPushButton { background: #353535; color: #bfc7d2; border: none; border-radius: 3px;
+            QPushButton { background: rgba(255,255,255,0.04); color: #bfc7d2; border: 1px solid rgba(255,255,255,0.06); border-radius: 4px;
                 font-size: 12px; font-weight: bold; min-width:26px; max-width:26px; min-height:22px; padding:0; }
-            QPushButton:hover { background: #454548; color: #e5e2e1; }
+            QPushButton:hover { background: rgba(255,255,255,0.08); color: #e5e2e1; border-color: rgba(255,255,255,0.12); }
         """
         _BTN_DEL = """
-            QPushButton { background: transparent; color: #e74c3c; border: 1px solid #93000a;
-                border-radius: 3px; font-size: 10px; font-weight: 600; padding: 3px 8px; }
-            QPushButton:hover { background: #93000a; color: #ffdad6; }
+            QPushButton { background: transparent; color: #e74c3c; border: 1px solid rgba(231,76,60,0.3);
+                border-radius: 4px; font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 600; padding: 3px 8px; }
+            QPushButton:hover { background: rgba(231,76,60,0.1); color: #ffdad6; border-color: rgba(231,76,60,0.5); }
         """
         from PyQt6.QtWidgets import QFrame
         layout = QVBoxLayout(self)
@@ -57,14 +57,14 @@ class JointCard(QGroupBox):
 
         # ── Card frame ────────────────────────────────────────────────────
         card = QFrame()
-        card.setStyleSheet("QFrame { background: #202020; border-radius: 5px; }")
+        card.setStyleSheet("QFrame { background: #1a1e24; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }")
         card_v = QVBoxLayout(card)
         card_v.setContentsMargins(0, 0, 0, 0)
         card_v.setSpacing(0)
 
         # Header
         header = QFrame()
-        header.setStyleSheet("QFrame { background: #2a2a2a; border-radius: 5px 5px 0 0; }")
+        header.setStyleSheet("QFrame { background: #222832; border-radius: 6px 6px 0 0; }")
         h_row = QHBoxLayout(header)
         h_row.setContentsMargins(10, 6, 8, 6)
         title_lbl = QLabel(f"<b style='color:#e5e2e1;'>J{self.index+1}</b> <span style='color:#89929b;'>{self.joint.name}</span>")
@@ -76,7 +76,7 @@ class JointCard(QGroupBox):
 
         # Body
         body = QFrame()
-        body.setStyleSheet("QFrame { background: #202020; border-radius: 0 0 5px 5px; }")
+        body.setStyleSheet("QFrame { background: #1a1e24; border-radius: 0 0 6px 6px; }")
         grid = QGridLayout(body)
         grid.setContentsMargins(10, 8, 10, 8)
         grid.setSpacing(5)
@@ -140,9 +140,9 @@ class JointCard(QGroupBox):
         self.edit_name = QLineEdit()
         self.edit_name.setText(self.joint.name)
         self.edit_name.setStyleSheet(
-            "QLineEdit { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 2px; "
-            "padding: 4px 6px; font-size: 11px; }"
-            "QLineEdit:focus { border-bottom: 2px solid #3498db; }"
+            "QLineEdit { background: #0e0e0e; color: #e5e2e1; border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; "
+            "padding: 4px 6px; font-family: 'Inter', sans-serif; font-size: 11px; }"
+            "QLineEdit:focus { border-color: rgba(52, 152, 219, 0.3); }"
         )
         self.edit_name.textChanged.connect(self._on_param_changed)
         grid.addWidget(self.edit_name, 5, 1)
@@ -150,7 +150,7 @@ class JointCard(QGroupBox):
         # Separator + button row
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #353535; border: none; max-height: 1px;")
+        sep.setStyleSheet("background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
         grid.addWidget(sep, 6, 0, 1, 2)
 
         hbox = QHBoxLayout()
@@ -216,7 +216,7 @@ class JointSlider(QWidget):
         hbox.setSpacing(8)
         lbl = QLabel(f"J{self.index+1}")
         lbl.setFixedWidth(28)
-        lbl.setStyleSheet("color: #92ccff; font-weight: 700; font-size: 11px; font-family: monospace;")
+        lbl.setStyleSheet("color: #92ccff; font-weight: 700; font-size: 11px; font-family: 'Space Grotesk', monospace; letter-spacing: 0.02em;")
         hbox.addWidget(lbl)
 
         # Slider range: use joint limits if provided, else generous defaults
@@ -282,26 +282,28 @@ class JointSlider(QWidget):
 
 # ── Kinematic chain panel style tokens ───────────────────────────────────────
 _KCP_SLIDER = """
-    QSlider::groove:horizontal { background: #202020; height: 4px; border-radius: 2px; }
-    QSlider::sub-page:horizontal { background: #3498db; border-radius: 2px; }
-    QSlider::handle:horizontal { background: #92ccff; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+    QSlider::groove:horizontal { background: #1a1e24; height: 3px; border-radius: 1px; }
+    QSlider::sub-page:horizontal { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #3498db, stop:1 #2980b9); border-radius: 1px; }
+    QSlider::handle:horizontal { background: #92ccff; width: 14px; height: 14px; margin: -6px 0; border-radius: 7px; border: 2px solid transparent; }
+    QSlider::handle:horizontal:hover { background: #ffffff; border: 2px solid rgba(146, 204, 255, 0.4); }
 """
 _KCP_SPIN = """
-    QDoubleSpinBox { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 2px; padding: 3px 6px; font-size: 11px; }
-    QDoubleSpinBox:focus { border-bottom: 2px solid #3498db; }
-    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; background: #1b1b1c; border: none; }
+    QDoubleSpinBox { background: #0e0e0e; color: #e5e2e1; border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; padding: 3px 6px; font-family: 'Space Grotesk', 'Consolas', monospace; font-size: 11px; }
+    QDoubleSpinBox:focus { border-bottom: 2px solid #3498db; border-color: rgba(52, 152, 219, 0.3); }
+    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 14px; background: #1a1e24; border: none; border-radius: 2px; }
 """
 _KCP_COMBO = """
-    QComboBox { background: #0e0e0e; color: #e5e2e1; border: none; border-radius: 3px; padding: 5px 8px; font-size: 11px; }
+    QComboBox { background: #0e0e0e; color: #e5e2e1; border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; padding: 5px 8px; font-family: 'Inter', sans-serif; font-size: 11px; }
+    QComboBox:hover { border-color: rgba(255,255,255,0.1); }
     QComboBox::drop-down { border: none; }
-    QComboBox QAbstractItemView { background: #202020; color: #e5e2e1; selection-background-color: #3498db; border: 1px solid #353535; }
+    QComboBox QAbstractItemView { background: #1a1e24; color: #e5e2e1; selection-background-color: rgba(52, 152, 219, 0.25); selection-color: #92ccff; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; }
 """
 _KCP_BTN_ADD = """
-    QPushButton { background-color: #27ae60; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 14px; border: none; border-radius: 4px; }
-    QPushButton:hover { background-color: #2ecc71; }
+    QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #27ae60, stop:1 #219a52); color: #ffffff; font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 700; font-size: 11px; padding: 6px 14px; border: 1px solid rgba(46,204,113,0.1); border-radius: 6px; letter-spacing: 0.02em; }
+    QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #2ecc71, stop:1 #27ae60); }
 """
-_KCP_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;"
-_KCP_MONO = "color: #92ccff; font-family: 'Consolas', monospace; font-size: 12px;"
+_KCP_LABEL = "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;"
+_KCP_MONO = "color: #92ccff; font-family: 'Space Grotesk', 'Consolas', monospace; font-size: 12px; letter-spacing: 0.02em;"
 
 
 class KinematicChainPanel(QWidget):
@@ -370,7 +372,7 @@ class KinematicChainPanel(QWidget):
         from PyQt6.QtWidgets import QFrame
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #353535; border: none; max-height: 1px;")
+        sep.setStyleSheet("background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
         layout.addWidget(sep)
 
         # ── Joint sliders section ────────────────────────────────────────

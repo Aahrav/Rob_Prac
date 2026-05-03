@@ -17,21 +17,24 @@ SPIN_STYLE = """
         background-color: #0e0e0e;
         color: #e5e2e1;
         padding: 5px 8px;
-        border: none;
-        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 4px;
+        font-family: 'Space Grotesk', 'Consolas', monospace;
         font-size: 11px;
         selection-background-color: #3498db;
     }
     QDoubleSpinBox:focus {
         border-bottom: 2px solid #3498db;
+        border-color: rgba(52, 152, 219, 0.3);
     }
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
         width: 18px;
-        background-color: #202020;
+        background-color: #1a1e24;
         border: none;
+        border-radius: 2px;
     }
     QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-        background-color: #2a2a2a;
+        background-color: #222832;
     }
 """
 
@@ -40,39 +43,48 @@ COMBO_STYLE = """
         background-color: #0e0e0e;
         color: #e5e2e1;
         padding: 6px 10px;
-        border: none;
-        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+        font-family: 'Inter', sans-serif;
         font-size: 11px;
     }
+    QComboBox:hover {
+        border-color: rgba(255, 255, 255, 0.1);
+    }
     QComboBox::drop-down { border: none; width: 24px; }
-    QComboBox::down-arrow { image: none; border-left: 1px solid #353535; width: 20px; }
+    QComboBox::down-arrow { image: none; border-left: 1px solid rgba(255,255,255,0.06); width: 20px; }
     QComboBox QAbstractItemView {
-        background-color: #202020;
+        background-color: #1a1e24;
         color: #e5e2e1;
-        selection-background-color: #3498db;
-        border: 1px solid #353535;
+        selection-background-color: rgba(52, 152, 219, 0.25);
+        selection-color: #92ccff;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
         padding: 4px;
     }
 """
 
-LABEL_STYLE = "color: #bfc7d2; font-size: 11px;"
-SECTION_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;"
+LABEL_STYLE = "color: #bfc7d2; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px;"
+SECTION_LABEL = "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;"
 
 BTN_GHOST_STYLE = """
     QPushButton {
         background-color: transparent;
         color: #89929b;
-        border: 1px solid #353535;
-        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 6px;
         padding: 6px 12px;
+        font-family: 'Inter', sans-serif;
         font-size: 11px;
+        letter-spacing: 0.02em;
     }
     QPushButton:hover {
-        background-color: #353535;
-        color: #e5e2e1;
+        background-color: rgba(255, 255, 255, 0.03);
+        color: #dbe3ed;
+        border-color: rgba(255, 255, 255, 0.12);
     }
     QPushButton:pressed {
-        background-color: #2a2a2a;
+        background-color: rgba(255, 255, 255, 0.01);
     }
 """
 
@@ -114,7 +126,7 @@ class RobotConfigPanel(QWidget):
         # ── Separator ─────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #353535; background: #353535; border: none; max-height: 1px;")
+        sep.setStyleSheet("color: rgba(255,255,255,0.04); background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
         layout.addWidget(sep)
 
         # ── Parameters grid ───────────────────────────────────────────────

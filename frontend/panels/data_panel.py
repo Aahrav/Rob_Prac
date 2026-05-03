@@ -1,38 +1,48 @@
 #!/usr/bin/env python3
 """
 DataPanel - Displays live Roll, Pitch, Yaw values and packets/sec rate.
-Kinetic Obsidian theme: compact monospace readout card.
+Kinetic Precision theme: glassmorphic card with colored axis indicators.
 
 P3-T3: Packets/sec counter uses a 1-second QTimer window.
        Call record_sample() each time a validated sample arrives;
        the timer fires every 1 000 ms, latches count → rate, then resets.
 """
 
-from PyQt6.QtWidgets import QWidget, QGridLayout, QLabel, QFrame, QVBoxLayout
+from PyQt6.QtWidgets import QWidget, QGridLayout, QLabel, QFrame, QVBoxLayout, QHBoxLayout
 from PyQt6.QtCore import Qt, QTimer
 
 
 # ── Style tokens ────────────────────────────────────────────────────────────
 CARD_STYLE = """
-    QWidget#data_card {
+    QFrame#data_card {
         background-color: #0e0e0e;
-        border-radius: 4px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
     }
 """
 
 VAL_LABEL_STYLE = (
     "color: #92ccff;"
-    "font-family: 'Consolas', monospace;"
+    "font-family: 'Space Grotesk', 'Consolas', monospace;"
     "font-size: 13px;"
     "font-weight: 700;"
+    "letter-spacing: 0.03em;"
 )
 KEY_LABEL_STYLE = (
     "color: #89929b;"
+    "font-family: 'Space Grotesk', 'Inter', sans-serif;"
     "font-size: 10px;"
     "font-weight: 600;"
-    "letter-spacing: 0.05em;"
+    "letter-spacing: 0.08em;"
 )
-UNIT_LABEL_STYLE = "color: #3f4850; font-size: 10px;"
+UNIT_LABEL_STYLE = "color: #3f4850; font-family: 'Space Grotesk', monospace; font-size: 10px;"
+
+# Axis indicator colors (matching trajectory panel convention)
+_AXIS_COLORS = {
+    "ROLL":  "#92ccff",  # blue
+    "PITCH": "#2ecc71",  # green
+    "YAW":   "#ffba4b",  # amber
+}
 
 # Packet-rate colours
 _RATE_COLOR_HEALTHY = "#2ecc71"   # green  — ≥ 5 pps (good live feed)
@@ -64,32 +74,38 @@ class DataPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Milled card container
+        # Glassmorphic card container
         card = QFrame()
         card.setObjectName("data_card")
-        card.setStyleSheet(
-            "QFrame#data_card { background-color: #0e0e0e; border-radius: 4px; }"
-        )
+        card.setStyleSheet(CARD_STYLE)
         grid = QGridLayout(card)
-        grid.setContentsMargins(10, 8, 10, 8)
-        grid.setHorizontalSpacing(12)
+        grid.setContentsMargins(0, 8, 10, 8)
+        grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(4)
 
         def _row(r, key, unit_text="°"):
+            # Colored left-border indicator
+            indicator = QFrame()
+            indicator.setFixedWidth(3)
+            indicator.setStyleSheet(
+                f"background-color: {_AXIS_COLORS.get(key, '#3f4850')}; border-radius: 1px; border: none;"
+            )
+            grid.addWidget(indicator, r, 0)
+
             lbl_key = QLabel(key)
             lbl_key.setStyleSheet(KEY_LABEL_STYLE)
-            grid.addWidget(lbl_key, r, 0)
+            grid.addWidget(lbl_key, r, 1)
 
             lbl_val = QLabel("  0.0")
             lbl_val.setStyleSheet(VAL_LABEL_STYLE)
             lbl_val.setAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
-            grid.addWidget(lbl_val, r, 1)
+            grid.addWidget(lbl_val, r, 2)
 
             lbl_unit = QLabel(unit_text)
             lbl_unit.setStyleSheet(UNIT_LABEL_STYLE)
-            grid.addWidget(lbl_unit, r, 2)
+            grid.addWidget(lbl_unit, r, 3)
             return lbl_val
 
         self.lbl_roll  = _row(0, "ROLL",  "°")
@@ -99,15 +115,33 @@ class DataPanel(QWidget):
         # ── Divider ────────────────────────────────────────────────────────
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("color: #1e1e1e; background: #1e1e1e; border: none; max-height: 1px;")
-        grid.addWidget(divider, 3, 0, 1, 3)
+        divider.setStyleSheet("color: rgba(255,255,255,0.04); background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
+        grid.addWidget(divider, 3, 0, 1, 4)
 
         # ── Packets/sec row (P3-T3) ────────────────────────────────────────
-        self.lbl_rate = _row(4, "PKT/S", "pps")
-        self.lbl_rate.setText("   0")
+        # PKT/S indicator (no colored bar, just muted left indicator)
+        pkt_indicator = QFrame()
+        pkt_indicator.setFixedWidth(3)
+        pkt_indicator.setStyleSheet("background-color: #3f4850; border-radius: 1px; border: none;")
+        grid.addWidget(pkt_indicator, 4, 0)
+        self._pkt_indicator = pkt_indicator
+
+        lbl_pkt_key = QLabel("PKT/S")
+        lbl_pkt_key.setStyleSheet(KEY_LABEL_STYLE)
+        grid.addWidget(lbl_pkt_key, 4, 1)
+
+        self.lbl_rate = QLabel("   0")
         self.lbl_rate.setStyleSheet(
             VAL_LABEL_STYLE.replace("#92ccff", _RATE_COLOR_ZERO)
         )
+        self.lbl_rate.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        grid.addWidget(self.lbl_rate, 4, 2)
+
+        lbl_pps = QLabel("pps")
+        lbl_pps.setStyleSheet(UNIT_LABEL_STYLE)
+        grid.addWidget(lbl_pps, 4, 3)
 
         outer.addWidget(card)
 
@@ -170,4 +204,8 @@ class DataPanel(QWidget):
         self.lbl_rate.setText(f"{int(rate):4d}")
         self.lbl_rate.setStyleSheet(
             VAL_LABEL_STYLE.replace("#92ccff", color)
+        )
+        # Update PKT/S indicator color to match
+        self._pkt_indicator.setStyleSheet(
+            f"background-color: {color}; border-radius: 1px; border: none;"
         )

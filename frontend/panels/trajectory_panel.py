@@ -19,23 +19,28 @@ log = get_logger(__name__)
 # ── Style tokens ─────────────────────────────────────────────────────────────
 SLIDER_STYLE = """
     QSlider::groove:horizontal {
-        background: #202020;
-        height: 4px;
-        border-radius: 2px;
+        background: #1a1e24;
+        height: 3px;
+        border-radius: 1px;
     }
     QSlider::sub-page:horizontal {
-        background: #3498db;
-        border-radius: 2px;
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #3498db, stop:1 #2980b9);
+        border-radius: 1px;
     }
     QSlider::handle:horizontal {
         background: #92ccff;
         width: 14px;
         height: 14px;
-        margin: -5px 0;
+        margin: -6px 0;
         border-radius: 7px;
+        border: 2px solid transparent;
     }
     QSlider::handle:horizontal:hover {
         background: #ffffff;
+        border: 2px solid rgba(146, 204, 255, 0.4);
+    }
+    QSlider::handle:horizontal:pressed {
+        background: #3498db;
     }
 """
 
@@ -44,17 +49,23 @@ SPIN_STYLE = """
         background-color: #0e0e0e;
         color: #e5e2e1;
         padding: 4px 6px;
-        border: none;
-        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 4px;
+        font-family: 'Space Grotesk', 'Consolas', monospace;
         font-size: 11px;
     }
     QDoubleSpinBox:focus {
         border-bottom: 2px solid #3498db;
+        border-color: rgba(52, 152, 219, 0.3);
     }
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
         width: 16px;
-        background-color: #202020;
+        background-color: #1a1e24;
         border: none;
+        border-radius: 2px;
+    }
+    QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+        background-color: #222832;
     }
 """
 
@@ -62,36 +73,64 @@ BTN_PRIMARY = """
     QPushButton {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
             stop:0 #3498db, stop:1 #2980b9);
-        color: #ffffff; font-weight: 700; font-size: 11px;
-        padding: 8px 4px; border: none; border-radius: 5px;
+        color: #ffffff;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-weight: 700; font-size: 11px;
+        padding: 8px 4px;
+        border: 1px solid rgba(146, 204, 255, 0.1);
+        border-radius: 6px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #2980b9; }
-    QPushButton:disabled { background-color: #353535; color: #89929b; }
+    QPushButton:hover {
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+            stop:0 #2980b9, stop:1 #1f6aa5);
+        border-color: rgba(146, 204, 255, 0.2);
+    }
+    QPushButton:disabled { background-color: #1a1e24; color: #3f4850; border-color: transparent; }
 """
 
 BTN_SUCCESS = """
     QPushButton {
-        background-color: #27ae60;
-        color: #ffffff; font-weight: 700; font-size: 11px;
-        padding: 8px 4px; border: none; border-radius: 5px;
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+            stop:0 #27ae60, stop:1 #219a52);
+        color: #ffffff;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-weight: 700; font-size: 11px;
+        padding: 8px 4px;
+        border: 1px solid rgba(46, 204, 113, 0.1);
+        border-radius: 6px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #2ecc71; }
-    QPushButton:disabled { background-color: #353535; color: #89929b; }
+    QPushButton:hover {
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+            stop:0 #2ecc71, stop:1 #27ae60);
+    }
+    QPushButton:disabled { background-color: #1a1e24; color: #3f4850; border-color: transparent; }
 """
 
 BTN_DANGER = """
     QPushButton {
-        background-color: #c0392b;
-        color: #ffffff; font-weight: 700; font-size: 11px;
-        padding: 8px 4px; border: none; border-radius: 5px;
+        background-color: rgba(192, 57, 43, 0.8);
+        color: #ffffff;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
+        font-weight: 700; font-size: 11px;
+        padding: 8px 4px;
+        border: 1px solid rgba(231, 76, 60, 0.15);
+        border-radius: 6px;
+        letter-spacing: 0.02em;
     }
     QPushButton:hover { background-color: #e74c3c; }
-    QPushButton:disabled { background-color: #353535; color: #89929b; }
+    QPushButton:disabled { background-color: #1a1e24; color: #3f4850; border-color: transparent; }
 """
 
-AXIS_LABEL = "color: #92ccff; font-weight: 700; font-size: 12px; font-family: monospace;"
-RANGE_LABEL = "color: #3f4850; font-size: 10px;"
-SECTION_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;"
+# Axis label colors: X=blue, Y=green, Z=amber
+_AXIS_CHIP_STYLES = {
+    'X': "color: #92ccff; background-color: rgba(52,152,219,0.1); border: 1px solid rgba(52,152,219,0.15); border-radius: 4px; font-weight: 700; font-size: 12px; font-family: 'Space Grotesk', monospace; padding: 1px 4px;",
+    'Y': "color: #2ecc71; background-color: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.15); border-radius: 4px; font-weight: 700; font-size: 12px; font-family: 'Space Grotesk', monospace; padding: 1px 4px;",
+    'Z': "color: #ffba4b; background-color: rgba(255,186,75,0.1); border: 1px solid rgba(255,186,75,0.15); border-radius: 4px; font-weight: 700; font-size: 12px; font-family: 'Space Grotesk', monospace; padding: 1px 4px;",
+}
+RANGE_LABEL = "color: #3f4850; font-family: 'Space Grotesk', monospace; font-size: 10px; letter-spacing: 0.02em;"
+SECTION_LABEL = "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;"
 
 
 class TrajectoryPanel(QWidget):
@@ -126,7 +165,7 @@ class TrajectoryPanel(QWidget):
         # Description
         desc = QLabel("Set end-effector position (meters). IK computes joint angles.")
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #89929b; font-size: 11px;")
+        desc.setStyleSheet("color: #89929b; font-family: 'Inter', sans-serif; font-size: 11px;")
         layout.addWidget(desc)
 
         # ── XYZ controls ──────────────────────────────────────────────────
@@ -144,10 +183,11 @@ class TrajectoryPanel(QWidget):
         for row_idx, (axis, mn, mx, default) in enumerate(axes):
             key = axis.lower()
 
-            # Axis label
+            # Axis label chip (colored)
             lbl = QLabel(axis)
-            lbl.setStyleSheet(AXIS_LABEL)
-            lbl.setFixedWidth(20)
+            lbl.setStyleSheet(_AXIS_CHIP_STYLES.get(axis, RANGE_LABEL))
+            lbl.setFixedWidth(24)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid.addWidget(lbl, row_idx * 2, 0)
 
             # Range label
@@ -183,32 +223,32 @@ class TrajectoryPanel(QWidget):
 
         # Workspace info
         self.lbl_workspace = QLabel("Max reach: — m")
-        self.lbl_workspace.setStyleSheet("color: #89929b; font-size: 11px;")
+        self.lbl_workspace.setStyleSheet("color: #89929b; font-family: 'Space Grotesk', monospace; font-size: 11px; letter-spacing: 0.02em;")
         layout.addWidget(self.lbl_workspace)
 
         # ── Separator ─────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #353535; background: #353535; border: none; max-height: 1px;")
+        sep.setStyleSheet("color: rgba(255,255,255,0.04); background: rgba(255,255,255,0.04); border: none; max-height: 1px;")
         layout.addWidget(sep)
 
         # ── Action buttons ────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
 
-        self.btn_set = QPushButton("Set Target")
+        self.btn_set = QPushButton("⊕ Set Target")
         self.btn_set.setStyleSheet(BTN_PRIMARY)
         self.btn_set.setToolTip("Store current XYZ as animation target")
         self.btn_set.clicked.connect(self._set_target_clicked)
         btn_row.addWidget(self.btn_set)
 
-        self.btn_animate = QPushButton("Animate")
+        self.btn_animate = QPushButton("▶ Animate")
         self.btn_animate.setStyleSheet(BTN_SUCCESS)
         self.btn_animate.setToolTip("Solve IK and animate arm to target")
         self.btn_animate.clicked.connect(self._animate_clicked)
         btn_row.addWidget(self.btn_animate)
 
-        self.btn_stop = QPushButton("Stop")
+        self.btn_stop = QPushButton("⬛ Stop")
         self.btn_stop.setStyleSheet(BTN_DANGER)
         self.btn_stop.setToolTip("Halt animation immediately")
         self.btn_stop.clicked.connect(self._stop_clicked)
@@ -220,7 +260,9 @@ class TrajectoryPanel(QWidget):
         # ── Status chip ───────────────────────────────────────────────────
         self.lbl_status = QLabel("Idle")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("color: #89929b; font-size: 11px; padding: 4px 0;")
+        self.lbl_status.setStyleSheet(
+            "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;"
+        )
         layout.addWidget(self.lbl_status)
 
     # ── Slot handlers ─────────────────────────────────────────────────────────
@@ -246,14 +288,14 @@ class TrajectoryPanel(QWidget):
         self.target_pos = self.current_pos[:]
         log.info("Target set: (%.4f, %.4f, %.4f)", *self.target_pos)
         self.lbl_status.setText("⬤  Target set")
-        self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
+        self.lbl_status.setStyleSheet("color: #2ecc71; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
         self.btn_animate.setEnabled(True)
 
     def _animate_clicked(self):
         if self.target_pos is None:
             log.warning("Animate clicked but no target set")
             self.lbl_status.setText("⬤  No target set")
-            self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+            self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
             return
 
         x, y, z = self.target_pos
@@ -270,7 +312,7 @@ class TrajectoryPanel(QWidget):
             if xy_dist > max_xy * 1.05:
                 log.warning("Target out of XY reach (%.4f > %.4f)", xy_dist, max_xy * 1.05)
                 self.lbl_status.setText("⬤  Out of reach")
-                self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+                self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
                 return
         else:
             max_xy = self.config.upper_arm_length + self.config.lower_arm_length + self.config.gripper_offset
@@ -279,7 +321,7 @@ class TrajectoryPanel(QWidget):
             if xy_dist > max_xy * 1.05:
                 log.warning("Target out of XY reach (%.4f > %.4f)", xy_dist, max_xy * 1.05)
                 self.lbl_status.setText("⬤  Out of reach")
-                self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+                self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
                 return
 
         if self.use_custom_chain and self.chain is not None:
@@ -303,7 +345,7 @@ class TrajectoryPanel(QWidget):
             if len(var_indices) < 1:
                 log.warning("IK aborted — no variable joints in chain")
                 self.lbl_status.setText("⬤  No variable joints")
-                self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+                self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
                 return
 
             full_solution = self.chain.inverse_kinematics(np.array([x, y, z]), initial_angles=initial_angles)
@@ -313,7 +355,7 @@ class TrajectoryPanel(QWidget):
                     x, y, z,
                 )
                 self.lbl_status.setText("⬤  IK failed")
-                self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+                self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
                 return
 
             start_vars = [initial_angles[i] for i in var_indices]
@@ -335,7 +377,7 @@ class TrajectoryPanel(QWidget):
             if result is None:
                 log.warning("Standard IK failed | target=(%.4f, %.4f, %.4f)", x, y, z)
                 self.lbl_status.setText("⬤  Target unreachable")
-                self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+                self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
                 return
             q1, q2, q3 = result
             q1 = (q1 + 180) % 360 - 180
@@ -352,7 +394,7 @@ class TrajectoryPanel(QWidget):
                  [round(v, 3) for v in self.animation_start_angles] if self.animation_start_angles else "TBD",
                  [round(v, 3) for v in self.animation_target_angles])
         self.lbl_status.setText("⬤  Animating...")
-        self.lbl_status.setStyleSheet("color: #f39c12; font-size: 11px; padding: 4px 0;")
+        self.lbl_status.setStyleSheet("color: #f39c12; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
         self._start_animation()
 
     def _start_animation(self):
@@ -419,7 +461,7 @@ class TrajectoryPanel(QWidget):
                 [round(v, 3) for v in current],
             )
             self.lbl_status.setText("⬤  Target reached")
-            self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
+            self.lbl_status.setStyleSheet("color: #2ecc71; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
             self._var_joint_indices = None
             self.animation_start_angles = []
 
@@ -433,7 +475,7 @@ class TrajectoryPanel(QWidget):
         self.btn_stop.setEnabled(False)
         log.info("Animation stopped by user")
         self.lbl_status.setText("⬤  Stopped")
-        self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
+        self.lbl_status.setStyleSheet("color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; padding: 4px 0; letter-spacing: 0.02em;")
 
     def set_current_angles(self, q1, q2, q3):
         self.current_angles = [q1, q2, q3]

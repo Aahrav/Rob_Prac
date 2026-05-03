@@ -30,38 +30,49 @@ from backend.config import DEFAULT_BAUD_RATE
 
 PILL_ACTIVE = """
     QPushButton {
-        background-color: #3498db;
-        color: #ffffff;
-        border: none;
-        border-radius: 4px;
-        padding: 6px 10px;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 rgba(52, 152, 219, 0.2), stop:1 rgba(52, 152, 219, 0.08));
+        color: #92ccff;
+        border: 1.5px solid rgba(52, 152, 219, 0.45);
+        border-radius: 14px;
+        padding: 6px 14px;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 600;
+        letter-spacing: 0.02em;
     }
 """
 
 PILL_INACTIVE = """
     QPushButton {
-        background-color: #202020;
+        background-color: transparent;
         color: #89929b;
-        border: none;
-        border-radius: 4px;
-        padding: 6px 10px;
+        border: 1.5px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 6px 14px;
+        font-family: 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 500;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #2a2a2a; color: #bfc7d2; }
+    QPushButton:hover {
+        background-color: rgba(255, 255, 255, 0.03);
+        color: #bfc7d2;
+        border-color: rgba(255, 255, 255, 0.12);
+    }
 """
 
 PILL_DISABLED = """
     QPushButton {
-        background-color: #181818;
+        background-color: rgba(255, 255, 255, 0.01);
         color: #3f4850;
-        border: 1px solid #1e1e1e;
-        border-radius: 4px;
-        padding: 6px 10px;
+        border: 1.5px solid rgba(255, 255, 255, 0.03);
+        border-radius: 14px;
+        padding: 6px 14px;
+        font-family: 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 500;
+        letter-spacing: 0.02em;
     }
 """
 
@@ -70,56 +81,73 @@ CONNECT_STYLE = """
         background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
             stop:0 #3498db, stop:1 #2980b9);
         color: #ffffff;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-weight: 700;
         font-size: 12px;
         padding: 10px;
-        border: none;
-        border-radius: 6px;
-        min-height: 36px;
+        border: 1px solid rgba(146, 204, 255, 0.15);
+        border-radius: 8px;
+        min-height: 38px;
+        letter-spacing: 0.02em;
     }
     QPushButton:hover {
         background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
             stop:0 #2980b9, stop:1 #1f6aa5);
+        border-color: rgba(146, 204, 255, 0.3);
     }
     QPushButton:pressed { background-color: #1f6aa5; }
-    QPushButton:disabled { background-color: #353535; color: #89929b; }
+    QPushButton:disabled {
+        background-color: #1a1e24;
+        color: #3f4850;
+        border-color: transparent;
+    }
 """
 
 DISCONNECT_STYLE = """
     QPushButton {
-        background-color: #3a3a3c;
+        background-color: #2a2e34;
         color: #e5e2e1;
+        font-family: 'Space Grotesk', 'Inter', sans-serif;
         font-weight: 700;
         font-size: 12px;
         padding: 10px;
-        border: none;
-        border-radius: 6px;
-        min-height: 36px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        min-height: 38px;
+        letter-spacing: 0.02em;
     }
-    QPushButton:hover { background-color: #454548; }
+    QPushButton:hover {
+        background-color: #353a42;
+        border-color: rgba(255, 255, 255, 0.12);
+    }
 """
 
 BROWSE_STYLE = """
     QPushButton {
-        background-color: #202020;
+        background-color: #1a1e24;
         color: #bfc7d2;
-        border: 1px solid #353535;
-        border-radius: 4px;
-        padding: 4px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-family: 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 500;
-        min-height: 24px;
+        min-height: 26px;
     }
-    QPushButton:hover { background-color: #2a2a2a; color: #e5e2e1; border-color: #454548; }
+    QPushButton:hover {
+        background-color: #222832;
+        color: #dbe3ed;
+        border-color: rgba(146, 204, 255, 0.15);
+    }
 """
 
 FILE_LABEL_STYLE = (
-    "color: #89929b; font-size: 10px; font-family: 'Consolas', monospace;"
+    "color: #89929b; font-size: 10px; font-family: 'Space Grotesk', 'Consolas', monospace; letter-spacing: 0.02em;"
 )
 
 SECTION_LABEL = (
-    "color: #89929b; font-size: 10px; font-weight: 600;"
-    "letter-spacing: 0.06em; text-transform: uppercase;"
+    "color: #89929b; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 10px; font-weight: 600;"
+    "letter-spacing: 0.08em; text-transform: uppercase;"
 )
 
 
@@ -172,11 +200,11 @@ class ConnectionPanel(QWidget):
         # ── Replay file row (hidden unless Replay mode active) ────────────
         self._replay_row = QFrame()
         self._replay_row.setStyleSheet(
-            "QFrame { background-color: #0e0e0e; border-radius: 4px; }"
+            "QFrame { background-color: #0e0e0e; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid #3498db; }"
         )
         replay_inner = QVBoxLayout(self._replay_row)
-        replay_inner.setContentsMargins(8, 6, 8, 6)
-        replay_inner.setSpacing(4)
+        replay_inner.setContentsMargins(10, 8, 10, 8)
+        replay_inner.setSpacing(6)
 
         lbl_file = QLabel("REPLAY FILE")
         lbl_file.setStyleSheet(SECTION_LABEL)
@@ -193,7 +221,7 @@ class ConnectionPanel(QWidget):
         self._file_label.setWordWrap(False)
         file_row.addWidget(self._file_label, 1)
 
-        browse_btn = QPushButton("Browse…")
+        browse_btn = QPushButton("📂  Browse…")
         browse_btn.setStyleSheet(BROWSE_STYLE)
         browse_btn.clicked.connect(self._browse_replay_file)
         file_row.addWidget(browse_btn)
@@ -212,7 +240,7 @@ class ConnectionPanel(QWidget):
         self.status_label = QLabel("⬤  Disconnected")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet(
-            "color: #e74c3c; font-size: 11px; font-weight: 600; padding: 4px 0;"
+            "color: #e74c3c; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; font-weight: 600; padding: 4px 0; letter-spacing: 0.02em;"
         )
         layout.addWidget(self.status_label)
 
@@ -244,7 +272,7 @@ class ConnectionPanel(QWidget):
             color, dot = "#f39c12", "⬤"
         self.status_label.setText(f"{dot}  {message}")
         self.status_label.setStyleSheet(
-            f"color: {color}; font-size: 11px; font-weight: 600; padding: 4px 0;"
+            f"color: {color}; font-family: 'Space Grotesk', 'Inter', sans-serif; font-size: 11px; font-weight: 600; padding: 4px 0; letter-spacing: 0.02em;"
         )
 
     def refresh_ports(self):
