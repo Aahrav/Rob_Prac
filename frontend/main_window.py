@@ -318,6 +318,13 @@ class MainWindow(QMainWindow):
         # Packet counter — incremented per valid sample; read by Part 3 (P3-T3)
         self._packet_count: int = 0
 
+        # ── Rendering Throttle ────────────────────────────────────────────
+        self._latest_sensor_data = None
+        self._last_rendered_data = None
+        self._render_timer = QTimer(self)
+        self._render_timer.timeout.connect(self._render_loop)
+        self._render_timer.start(33)  # ~30 FPS UI update rate
+
         # CSV recording (--record)
         self._record_file = None
         self._record_writer = None
@@ -1032,12 +1039,27 @@ class MainWindow(QMainWindow):
         """Display path — calibration + filtering already applied upstream."""
         self.data_panel.record_sample()
         self._packet_count += 1
+        self._latest_sensor_data = (roll, pitch, yaw)
+
+    def _render_loop(self):
+        """Throttled rendering loop to prevent UI lag during high-frequency data streams."""
+        if self._latest_sensor_data is None:
+            return
+        if self._latest_sensor_data == self._last_rendered_data:
+            return
+
+        roll, pitch, yaw = self._latest_sensor_data
+        self._last_rendered_data = self._latest_sensor_data
 
         self.data_panel.update_values(roll, pitch, yaw)
         self.trajectory_panel.set_current_angles(roll, pitch, yaw)
         self.current_angles = [roll, pitch, yaw]
         positions = compute_arm_positions(roll, pitch, yaw, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
+        
+        # Also update the end effector display since we have new positions
+        tip = positions[-1]
+        self._update_ee_display(tip[0], tip[1], tip[2])
 
     def _on_target_angles(self, q1: float, q2: float, q3: float):
         """IK sliders — active only while disconnected (no streaming producer)."""
