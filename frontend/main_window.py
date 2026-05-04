@@ -348,46 +348,82 @@ class MainWindow(QMainWindow):
         title_bar = self._make_title_bar()
         root.addWidget(title_bar)
 
-        # ── Splitter ──────────────────────────────────────────────────────
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setHandleWidth(2)
+        # ── Splitters ─────────────────────────────────────────────────────
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setHandleWidth(2)
+        
+        # Left Workspace Splitter (Vertical)
+        self.work_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.work_splitter.setHandleWidth(2)
+        
+        # Center Viewport (3D Canvas)
+        self.center_panel = QWidget()
+        self.center_panel.setStyleSheet("background-color: #131313;")
+        self.center_layout = QVBoxLayout(self.center_panel)
+        self.center_layout.setContentsMargins(0, 0, 0, 0)
+        self.center_layout.setSpacing(0)
+        
+        # Bottom Panel (Timeline / Trajectory)
+        self.bottom_panel = QWidget()
+        self.bottom_panel.setStyleSheet("background-color: #131313; border-top: 1px solid rgba(255, 255, 255, 0.04);")
+        self.bottom_layout = QVBoxLayout(self.bottom_panel)
+        self.bottom_layout.setContentsMargins(0, 0, 0, 0)
+        self.bottom_layout.setSpacing(0)
+        
+        self.work_splitter.addWidget(self.center_panel)
+        self.work_splitter.addWidget(self.bottom_panel)
+        self.work_splitter.setStretchFactor(0, 1)  # Canvas takes most space
+        self.work_splitter.setStretchFactor(1, 0)  # Bottom panel is fixed/compact
+        self.work_splitter.setSizes([750, 250])
+        
+        # RIGHT sidebar (Properties)
+        self.right_scroll = QScrollArea()
+        self.right_scroll.setWidgetResizable(True)
+        self.right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.right_scroll.setStyleSheet("QScrollArea { border: none; background-color: #131313; border-left: 1px solid rgba(255, 255, 255, 0.04); }")
+        self.right_scroll.setMinimumWidth(300)
+        self.right_scroll.setMaximumWidth(380) # Restrict width so canvas remains dominant
 
-        # LEFT sidebar
-        self.left_scroll = QScrollArea()
-        self.left_scroll.setWidgetResizable(True)
-        self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.left_scroll.setStyleSheet("QScrollArea { border: none; background-color: #131313; }")
-
-        self.left_content = QWidget()
-        self.left_content.setStyleSheet("background-color: #131313;")
-        self.left_content.setMinimumWidth(280)
-        self.left_layout = QVBoxLayout(self.left_content)
-        self.left_layout.setContentsMargins(0, 0, 0, 0)
-        self.left_layout.setSpacing(0)
-        self.left_scroll.setWidget(self.left_content)
-
-        # RIGHT panel
-        self.right_panel = QWidget()
-        self.right_panel.setStyleSheet("background-color: #131313;")
-        self.right_layout = QVBoxLayout(self.right_panel)
+        self.right_content = QWidget()
+        self.right_content.setStyleSheet("background-color: #131313;")
+        self.right_layout = QVBoxLayout(self.right_content)
         self.right_layout.setContentsMargins(0, 0, 0, 0)
         self.right_layout.setSpacing(0)
+        self.right_scroll.setWidget(self.right_content)
 
-        self.splitter.addWidget(self.left_scroll)
-        self.splitter.addWidget(self.right_panel)
-        self.splitter.setStretchFactor(0, 0)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([340, 1060])
+        self.main_splitter.addWidget(self.work_splitter)
+        self.main_splitter.addWidget(self.right_scroll)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 0)
+        self.main_splitter.setSizes([1060, 340])
 
-        root.addWidget(self.splitter, 1)
+        root.addWidget(self.main_splitter, 1)
 
         # ── Status bar ────────────────────────────────────────────────────
         self._setup_status_bar()
 
         # ── Build panels ──────────────────────────────────────────────────
-        self._build_left_panel()
-        self._setup_right_panel()
+        self._build_properties_panel()
+        self._build_center_viewport()
+        self._build_bottom_timeline()
+
+        # ── Wire up remaining connections ──────────────────────────────────
+        self.connection_panel.connect_requested.connect(self._on_connect_requested)
+        self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
+        self.connection_panel.mode_changed.connect(self._on_mode_changed)
+        self._on_robot_config_changed(self.kinematics_config)
+        self._update_panel_visibility()
+
+        cal_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        cal_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        cal_shortcut.activated.connect(self._on_calibrate)
+
+        # ── Auto-replay (--replay CLI flag) ───────────────────────────────
+        # Deferred via singleShot(0) so the window is fully rendered first.
+        if self._replay_path:
+            QTimer.singleShot(0, self._schedule_auto_replay)
+
 
     # ═══════════════════════════════════════════════════════════════════════
     #  UI Construction
@@ -507,8 +543,8 @@ class MainWindow(QMainWindow):
         """)
         sb.addPermanentWidget(self.sb_ee)
 
-    def _build_left_panel(self):
-        """Build all accordion sections in the left sidebar."""
+    def _build_properties_panel(self):
+        """Build all accordion sections in the right sidebar (properties)."""
 
         # ── SECTION 1: Mode & Connection ──────────────────────────────────
         self.section_mode = AccordionSection("Mode & Connection")
@@ -524,7 +560,7 @@ class MainWindow(QMainWindow):
         mode_layout.setSpacing(8)
         mode_layout.addWidget(self.connection_panel)
         self.section_mode.setContentLayout(mode_layout)
-        self.left_layout.addWidget(self.section_mode)
+        self.right_layout.addWidget(self.section_mode)
 
         # ── SECTION 2: Robot Parameters ───────────────────────────────────
         self.section_robot_params = AccordionSection("Robot Parameters")
@@ -591,7 +627,7 @@ class MainWindow(QMainWindow):
         params_layout.addWidget(self.data_panel)
 
         self.section_robot_params.setContentLayout(params_layout)
-        self.left_layout.addWidget(self.section_robot_params)
+        self.right_layout.addWidget(self.section_robot_params)
 
         # ── SECTION 3: Robot Structure (Custom DH) ────────────────────────
         self.section_chain = AccordionSection("Kinematic Chain")
@@ -604,22 +640,9 @@ class MainWindow(QMainWindow):
         chain_layout.addWidget(self.chain_panel)
         self.section_chain.setContentLayout(chain_layout)
         self.section_chain.setVisible(False)
-        self.left_layout.addWidget(self.section_chain)
+        self.right_layout.addWidget(self.section_chain)
 
-        # ── SECTION 4: Trajectory Control ─────────────────────────────────
-        self.section_joint_control = AccordionSection("Trajectory Control")
-
-        from frontend.panels.trajectory_panel import TrajectoryPanel
-        self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
-        self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
-
-        joint_layout = QVBoxLayout()
-        joint_layout.setContentsMargins(0, 0, 0, 0)
-        joint_layout.addWidget(self.trajectory_panel)
-        self.section_joint_control.setContentLayout(joint_layout)
-        self.left_layout.addWidget(self.section_joint_control)
-
-        # ── SECTION 5: End-Effector ───────────────────────────────────────
+        # ── SECTION 4: End-Effector ───────────────────────────────────────
         self.section_ee = AccordionSection("End Effector")
 
         # EE info card
@@ -648,12 +671,12 @@ class MainWindow(QMainWindow):
         ee_layout.setContentsMargins(0, 0, 0, 0)
         ee_layout.addWidget(ee_card)
         self.section_ee.setContentLayout(ee_layout)
-        self.left_layout.addWidget(self.section_ee)
+        self.right_layout.addWidget(self.section_ee)
 
-        self.left_layout.addStretch()
+        self.right_layout.addStretch()
 
-    def _setup_right_panel(self):
-        """Camera toolbar + 3D canvas."""
+    def _build_center_viewport(self):
+        """Camera toolbar + 3D canvas (Center Workspace)."""
         from frontend.panels.arm_canvas import ArmCanvas
 
         # ── Viewport toolbar ───────────────────────────────────────────────
@@ -715,30 +738,53 @@ class MainWindow(QMainWindow):
         self.btn_reset_view.clicked.connect(self._reset_view)
         tb_layout.addWidget(self.btn_reset_view)
 
-        self.right_layout.addWidget(toolbar)
+        self.center_layout.addWidget(toolbar)
 
         # ── 3D Canvas ─────────────────────────────────────────────────────
         self.arm_canvas = ArmCanvas()
         self.arm_canvas.config = self.kinematics_config
         self.arm_canvas.setMinimumSize(600, 500)
-        self.right_layout.addWidget(self.arm_canvas, stretch=1)
+        self.center_layout.addWidget(self.arm_canvas, stretch=1)
 
-        # ── Wire up remaining connections ──────────────────────────────────
-        self.connection_panel.connect_requested.connect(self._on_connect_requested)
-        self.connection_panel.disconnect_requested.connect(self._on_disconnect_requested)
-        self.connection_panel.mode_changed.connect(self._on_mode_changed)
+    def _build_bottom_timeline(self):
+        """Build the bottom timeline / animation panel."""
+        from PyQt6.QtWidgets import QTabWidget
+        from frontend.panels.trajectory_panel import TrajectoryPanel
+        
+        self.timeline_tabs = QTabWidget()
+        self.timeline_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.04);
+                background-color: #131313;
+            }
+            QTabBar::tab {
+                background-color: #0a0a0a;
+                color: #89929b;
+                padding: 6px 16px;
+                border-right: 1px solid rgba(255, 255, 255, 0.04);
+                font-family: 'Space Grotesk', 'Inter', sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+            }
+            QTabBar::tab:selected {
+                background-color: #1e2228;
+                color: #e5e2e1;
+                border-bottom: 2px solid #3498db;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #1a1e24;
+                color: #dbe3ed;
+            }
+        """)
+
+        # Trajectory Control (Animation)
+        self.trajectory_panel = TrajectoryPanel(config=self.kinematics_config)
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
-        self._on_robot_config_changed(self.kinematics_config)
-        self._update_panel_visibility()
+        self.timeline_tabs.addTab(self.trajectory_panel, "Trajectory Control")
 
-        cal_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
-        cal_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        cal_shortcut.activated.connect(self._on_calibrate)
-
-        # ── Auto-replay (--replay CLI flag) ───────────────────────────────
-        # Deferred via singleShot(0) so the window is fully rendered first.
-        if self._replay_path:
-            QTimer.singleShot(0, self._schedule_auto_replay)
+        self.bottom_layout.addWidget(self.timeline_tabs)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  Mode management
@@ -793,11 +839,11 @@ class MainWindow(QMainWindow):
         show_trajectory = not replay_live and not sim_live
         if self.mode == 'standard':
             self.section_robot_params.setVisible(True)
-            self.section_joint_control.setVisible(show_trajectory)
+            self.bottom_panel.setVisible(show_trajectory)
             self.section_chain.setVisible(False)
         else:
             self.section_robot_params.setVisible(False)
-            self.section_joint_control.setVisible(show_trajectory)
+            self.bottom_panel.setVisible(show_trajectory)
             self.section_chain.setVisible(True)
 
     def _update_status_bar_mode(self):
