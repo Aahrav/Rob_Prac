@@ -26,6 +26,11 @@ class ArmCanvas(FigureCanvas):
         # Turn off default matplotlib bounding box to mimic Blender's infinite void
         self.ax.set_axis_off()
 
+        # ── Blender Navigation Overrides ──
+        self.fig.canvas.mpl_connect('scroll_event', self._on_mouse_scroll)
+        self._orig_button_press = self.ax._button_press
+        self.ax._button_press = self._custom_button_press
+
         self.config = ArmConfig()
 
         # Colors
@@ -92,6 +97,39 @@ class ArmCanvas(FigureCanvas):
 
         self._init_empty_plot()
 
+    def _custom_button_press(self, event):
+        """Intercept button press to support Shift+Middle Click for panning."""
+        if event.button == 2 and getattr(event, 'key', None) == 'shift':
+            event.button = 3  # Trick Matplotlib into thinking pan_btn was pressed
+        self._orig_button_press(event)
+
+    def _on_mouse_scroll(self, event):
+        """Zoom in/out on scroll wheel."""
+        if event.inaxes != self.ax:
+            return
+        
+        # Scroll up (positive) = zoom in = scale < 1.0
+        # Scroll down (negative) = zoom out = scale > 1.0
+        scale_factor = 0.9 if event.step > 0 else 1.1
+        
+        xlim = self.ax.get_xlim3d()
+        ylim = self.ax.get_ylim3d()
+        zlim = self.ax.get_zlim3d()
+        
+        x_center = sum(xlim) / 2
+        y_center = sum(ylim) / 2
+        z_center = sum(zlim) / 2
+        
+        x_span = (xlim[1] - xlim[0]) * scale_factor
+        y_span = (ylim[1] - ylim[0]) * scale_factor
+        z_span = (zlim[1] - zlim[0]) * scale_factor
+        
+        self.ax.set_xlim3d([x_center - x_span/2, x_center + x_span/2])
+        self.ax.set_ylim3d([y_center - y_span/2, y_center + y_span/2])
+        self.ax.set_zlim3d([z_center - z_span/2, z_center + z_span/2])
+        
+        self.draw_idle()
+
     def _init_empty_plot(self):
         self.ax.cla()
         # Reset all mesh references to avoid stale artists after clear
@@ -146,7 +184,8 @@ class ArmCanvas(FigureCanvas):
         # Start with isometric view
         self.ax.view_init(**self.default_view)
 
-        # Enable interactive navigation (mouse rotate, zoom, pan) — default
+        # Enable interactive navigation: Middle click = rotate, Right click (mapped via shift) = pan
+        self.ax.mouse_init(rotate_btn=2, pan_btn=3, zoom_btn=None)
 
     def _add_static_ground(self):
         """Create an infinite floor grid with Blender-colored origin axes."""
