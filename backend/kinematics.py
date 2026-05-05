@@ -292,22 +292,22 @@ class KinematicChain:
 
     def get_max_reach(self) -> float:
         """
-        Calculate the maximum possible distance the end-effector can reach from the base origin.
-        This is the sum of Euclidean distances for each link plus the base height.
+        Calculate the maximum possible distance the end-effector can reach from the base.
+        This is a conservative upper bound (sum of all link lengths and prismatic strokes).
         """
-        total_arm_length = 0.0
+        max_reach = 0.0
         for i, j in enumerate(self.joints):
-            # The Euclidean length of the link segment defined by this joint
-            link_len = np.sqrt(j.a**2 + j.d**2)
-            
-            # If prismatic, we must also account for the maximum stroke
-            if j.type == 'prismatic' and j.q_max is not None:
-                # Use max of fixed offset and prismatic stroke
-                link_len = max(link_len, abs(j.q_max))
-                
-            total_arm_length += link_len
-            
-        return total_arm_length
+            contribution = 0.0
+            if j.type == 'prismatic':
+                d_max = abs(j.d)
+                if j.q_max is not None:
+                    d_max = max(d_max, abs(j.q_max))
+                contribution = abs(j.a) + d_max
+            else:
+                contribution = abs(j.a) + abs(j.d)
+            max_reach += contribution
+            print(f"DEBUG: Joint {i+1} ({j.name}) reach contribution: {contribution:.4f}")
+        return max_reach
 
     def add_joint(self, joint: DHJoint):
         self.joints.append(joint)
@@ -350,16 +350,21 @@ class KinematicChain:
         transforms = [T_base]
 
         for i, joint in enumerate(self.joints):
-            # Check if we have an angle override for this specific joint index
-            q_val = joint_angles[i] if (joint_angles and i < len(joint_angles)) else None
-
+            # Joint displacement q (0.0 if not provided)
+            q = 0.0
+            if joint_angles is not None and i < len(joint_angles):
+                q = joint_angles[i]
+            
             if joint.type == 'revolute':
-                theta = np.radians(q_val if q_val is not None else joint.theta)
+                # theta_final = theta_base + q_revolute
+                theta = np.radians(q + joint.theta)
                 d = joint.d
             elif joint.type == 'prismatic':
+                # d_final = d_base + q_prismatic
                 theta = np.radians(joint.theta)
-                d = q_val if q_val is not None else joint.d
-            else:  # fixed
+                d = q + joint.d
+            else:
+                # Fixed: T is constant from DH params
                 theta = np.radians(joint.theta)
                 d = joint.d
 
@@ -462,6 +467,7 @@ class KinematicChain:
                     down_torque = np.cross(down_r, down_weight)
                     torques[i] += np.dot(down_torque, z_axis)
             else:
+<<<<<<< HEAD
                 # For prismatic joints, we care about force along the Z axis
                 torques[i] = np.dot(weight_force, z_axis)
                 for j in range(i + 1, n):
@@ -469,6 +475,8 @@ class KinematicChain:
                     torques[i] += np.dot(down_weight, z_axis)
                     
         return torques
+=======
+>>>>>>> temp
 
     def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
         """

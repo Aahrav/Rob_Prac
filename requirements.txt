@@ -10,3 +10,6 @@ numpy>=1.20
 # pytest>=7.0
 # black>=23.0
 # flake8>=6.0
+
+# Hardware integration
+pyserial>=3.5

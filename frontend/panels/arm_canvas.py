@@ -6,7 +6,7 @@ ArmCanvas - 3D Robotic Arm visualization with realistic meshes, ground plane, an
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import numpy as np
 from backend.meshes import cylinder_mesh, sphere_mesh, cuboid_mesh
 from backend.kinematics import ArmConfig
@@ -16,19 +16,21 @@ class ArmCanvas(FigureCanvas):
     """Matplotlib 3D canvas for rendering the robotic arm with 3D meshes and collision detection."""
 
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(9, 7), facecolor='#2d2d2d', dpi=100)
+        self.fig = Figure(figsize=(9, 7), facecolor='#282828', dpi=100)
         super().__init__(self.fig)
         self.setParent(parent)
 
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_facecolor('#2d2d2d')
-        self.ax.grid(True, color='#444')
+        self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        self.ax = self.fig.add_axes([0, 0, 1, 1], projection='3d')
+        self.ax.set_facecolor('#282828')
+        
+        # Turn off default matplotlib bounding box to mimic Blender's infinite void
+        self.ax.set_axis_off()
 
-        # Styling
-        self.ax.xaxis.label.set_color('#aaa')
-        self.ax.yaxis.label.set_color('#aaa')
-        self.ax.zaxis.label.set_color('#aaa')
-        self.ax.tick_params(colors='#aaa')
+        # ── Blender Navigation Overrides ──
+        self.fig.canvas.mpl_connect('scroll_event', self._on_mouse_scroll)
+        self._orig_button_press = self.ax._button_press
+        self.ax._button_press = self._custom_button_press
 
         self.config = ArmConfig()
 
@@ -96,6 +98,75 @@ class ArmCanvas(FigureCanvas):
 
         self._init_empty_plot()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_aspect_ratio()
+
+    def _update_aspect_ratio(self):
+        """Dynamically adjust 3D box aspect and data limits to fill the canvas widget."""
+        w = self.width()
+        h = self.height()
+        if h <= 0 or not hasattr(self, 'workspace_radius'):
+            return
+
+        aspect = w / h
+        xy_max = self.workspace_radius
+        z_max = self.ax.get_zlim()[1]
+        
+        # Base physical bounds
+        base_x_range = 2 * xy_max
+        base_y_range = 2 * xy_max
+        
+        if aspect > 1.0:
+            # Widescreen: stretch X limits to fill horizontal space
+            self.ax.set_xlim([-xy_max * aspect, xy_max * aspect])
+            self.ax.set_ylim([-xy_max, xy_max])
+            self.ax.set_box_aspect((2 * xy_max * aspect, 2 * xy_max, z_max))
+        else:
+            # Tallscreen: stretch Y limits to fill vertical space
+            self.ax.set_xlim([-xy_max, xy_max])
+            self.ax.set_ylim([-xy_max / aspect, xy_max / aspect])
+            self.ax.set_box_aspect((2 * xy_max, 2 * xy_max / aspect, z_max))
+        
+        # Ensure the axes occupies the full figure on every resize
+        self.ax.set_position([0, 0, 1, 1])
+        self.draw_idle()
+
+
+
+    def _custom_button_press(self, event):
+        """Intercept button press to support Shift+Middle Click for panning."""
+        if event.button == 2 and getattr(event, 'key', None) == 'shift':
+            event.button = 3  # Trick Matplotlib into thinking pan_btn was pressed
+        self._orig_button_press(event)
+
+    def _on_mouse_scroll(self, event):
+        """Zoom in/out on scroll wheel."""
+        if event.inaxes != self.ax:
+            return
+        
+        # Scroll up (positive) = zoom in = scale < 1.0
+        # Scroll down (negative) = zoom out = scale > 1.0
+        scale_factor = 0.9 if event.step > 0 else 1.1
+        
+        xlim = self.ax.get_xlim3d()
+        ylim = self.ax.get_ylim3d()
+        zlim = self.ax.get_zlim3d()
+        
+        x_center = sum(xlim) / 2
+        y_center = sum(ylim) / 2
+        z_center = sum(zlim) / 2
+        
+        x_span = (xlim[1] - xlim[0]) * scale_factor
+        y_span = (ylim[1] - ylim[0]) * scale_factor
+        z_span = (zlim[1] - zlim[0]) * scale_factor
+        
+        self.ax.set_xlim3d([x_center - x_span/2, x_center + x_span/2])
+        self.ax.set_ylim3d([y_center - y_span/2, y_center + y_span/2])
+        self.ax.set_zlim3d([z_center - z_span/2, z_center + z_span/2])
+        
+        self.draw_idle()
+
     def _init_empty_plot(self):
         self.ax.cla()
         # Reset all mesh references to avoid stale artists after clear
@@ -122,6 +193,10 @@ class ArmCanvas(FigureCanvas):
         self.draw()
 
     def _setup_axes(self):
+        # Re-apply styling after cla()
+        self.ax.set_facecolor('#282828')
+        self.ax.set_axis_off()
+
         # Initial tight bounds (will be updated by presets)
         self.workspace_radius = 0.5
         self.workspace_z_max = 0.6
@@ -129,10 +204,6 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_ylim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_zlim([0, self.workspace_z_max])
-
-        self.ax.set_xlabel('X (m)')
-        self.ax.set_ylabel('Y (m)')
-        self.ax.set_zlabel('Z (m)')
 
         # Lock aspect ratio (prevents distortion)
         self.ax.set_box_aspect((1, 1, 0.6))
@@ -150,10 +221,11 @@ class ArmCanvas(FigureCanvas):
         # Start with isometric view
         self.ax.view_init(**self.default_view)
 
-        # Enable interactive navigation (mouse rotate, zoom, pan) — default
+        # Enable interactive navigation: Middle click = rotate, Right click (mapped via shift) = pan
+        self.ax.mouse_init(rotate_btn=2, pan_btn=3, zoom_btn=None)
 
     def _add_static_ground(self):
-        """Create a ground plane with grid and workspace boundary (static, added once)."""
+        """Create an infinite floor grid with Blender-colored origin axes."""
         size = self.workspace_radius  # ground spans full XY workspace
 
         # Ground plane (very transparent)
@@ -177,13 +249,34 @@ class ArmCanvas(FigureCanvas):
             step = 0.1
         else:
             step = 0.25
+        
+        grid_color = '#3a3a3a'
 
         for x in np.arange(-size, size + step, step):
-            line = self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
+            if abs(x) > 1e-5:  # skip origin for axis lines
+                line = self.ax.plot([x, x], [-size, size], [0, 0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
         for y in np.arange(-size, size + step, step):
-            line = self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
+            if abs(y) > 1e-5:
+                line = self.ax.plot([-size, size], [y, y], [0, 0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
+
+        # Origin Axes (Blender colors: X=Red, Y=Green, Z=Blue)
+        # X-axis (Red)
+        line_x = self.ax.plot([-size, size], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
+        self._ground_elements.append(line_x)
+        # Y-axis (Green)
+        line_y = self.ax.plot([0, 0], [-size, size], [0, 0], color='#2ecc71', linewidth=1.5)[0]
+        self._ground_elements.append(line_y)
+        # Z-axis (Blue)
+        line_z = self.ax.plot([0, 0], [0, 0], [0, self.workspace_z_max], color='#3498db', linewidth=1.5)[0]
+        self._ground_elements.append(line_z)
+
+        # Labels for the origin axes
+        txt_x = self.ax.text(size * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
+        txt_y = self.ax.text(0, size * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
+        txt_z = self.ax.text(0, 0, self.workspace_z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
+        self._ground_elements.extend([txt_x, txt_y, txt_z])
 
         # Workspace boundary: faint circle at ground (max XY reach 0.6m)
         max_reach = 0.6
@@ -336,21 +429,40 @@ class ArmCanvas(FigureCanvas):
         base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w/2, resolution=24)
         base_color = self.collision_color if 'base' in coll else self.default_colors['base']
         self._update_mesh('base', base_verts, base_faces, base_color)
-        
-        # Draw / Update upper arm cylinder (shoulder -> elbow)
+        base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=base_color, edgecolors='#444', linewidths=0.5)
+        base_coll.set_clip_on(False)
+        self.ax.add_collection3d(base_coll)
+        self.meshes['base'] = base_coll
+
+        # Draw upper arm cylinder (shoulder -> elbow)
+        upper_radius = 0.025
         upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, link_r_upper, resolution=20)
         upper_color = self.collision_color if 'upper' in coll else self.default_colors['upper']
         self._update_mesh('upper', upper_verts, upper_faces, upper_color)
+        upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
+        upper_coll.set_clip_on(False)
+        self.ax.add_collection3d(upper_coll)
+        self.meshes['upper'] = upper_coll
+        upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
+        self.ax.add_collection3d(upper_coll)
+        self.meshes['upper'] = upper_coll
 
         # Draw / Update lower arm cylinder (elbow -> wrist)
         lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, link_r_lower, resolution=16)
         lower_color = self.collision_color if 'lower' in coll else self.default_colors['lower']
         self._update_mesh('lower', lower_verts, lower_faces, lower_color)
+        lower_coll = Poly3DCollection([lower_verts[face] for face in lower_faces], facecolors=lower_color, edgecolors='#444', linewidths=0.5)
+        lower_coll.set_clip_on(False)
+        self.ax.add_collection3d(lower_coll)
+        self.meshes['lower'] = lower_coll
 
         # Draw / Update gripper cylinder (wrist -> tip)
         gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, link_r_gripper, resolution=12)
         gripper_color = self.collision_color if 'gripper' in coll else self.default_colors['gripper']
         self._update_mesh('gripper', gripper_verts, gripper_faces, gripper_color)
+        gripper_coll = Poly3DCollection([gripper_verts[face] for face in gripper_faces], facecolors=gripper_color, edgecolors='#444', linewidths=0.5)
+        self.ax.add_collection3d(gripper_coll)
+        self.meshes['gripper'] = gripper_coll
 
         # Draw / Update joint spheres
         joint_data = [
@@ -363,6 +475,7 @@ class ArmCanvas(FigureCanvas):
         # Ensure joints list has enough collections
         while len(self.meshes['joints']) < len(joint_data):
             c = Poly3DCollection([], alpha=1.0)
+            joint_coll.set_clip_on(False)
             self.ax.add_collection3d(c)
             self.meshes['joints'].append(c)
         while len(self.meshes['joints']) > len(joint_data):
@@ -375,7 +488,8 @@ class ArmCanvas(FigureCanvas):
             self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
             self.meshes['joints'][i].set_facecolor(j_color)
             self.meshes['joints'][i].set_edgecolor('#333')
-            self.meshes['joints'][i].set_linewidth(0.3)
+            tip_coll.set_clip_on(False)
+        self.meshes['joints'][i].set_linewidth(0.3)
             self.meshes['joints'][i].set_visible(True)
 
         # Adjust axis limits to fit arm and ground
@@ -414,7 +528,8 @@ class ArmCanvas(FigureCanvas):
             self._traj_line.remove()
         if self.trajectory_points:
             pts = np.array(self.trajectory_points)
-            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], 'r-', linewidth=1, alpha=0.7)[0]
+            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], color='#f1c40f', linewidth=1, alpha=0.8, zorder=4)[0]
+            self._traj_line.set_clip_on(False)
         else:
             self._traj_line = None
         self.draw_idle()
@@ -448,12 +563,18 @@ class ArmCanvas(FigureCanvas):
             self.draw_idle()
 
     def update_ground(self, radius: float):
-        """Rebuild ground plane, grid, and workspace circle to match new radius."""
+        """Rebuild ground plane, grid, and workspace circle to match new radius with Blender aesthetics."""
         # Remove existing ground elements
         for artist in self._ground_elements:
             artist.remove()
         self._ground_elements.clear()
+        
         self.workspace_radius = radius
+        # Draw a grid large enough to cover widescreen but small enough to avoid projection issues
+        size = radius * 8.0 
+
+        # Grid lines coordinates
+        segments = []
         # Ground plane
         corners = np.array([
             [-radius, -radius, 0],
@@ -472,20 +593,40 @@ class ArmCanvas(FigureCanvas):
         elif radius <= 0.7:
             step = 0.1
         else:
-            step = 0.25
+        step = 0.25
+        grid_color = '#3a3a3a'
+        # Build grid segments
+        for x in np.arange(-size, size + step, step):
+            if abs(x) > 1e-5:
+                segments.append([[x, -size, 0], [x, size, 0]])
+        for y in np.arange(-size, size + step, step):
+            if abs(y) > 1e-5:
+                segments.append([[-size, y, 0], [size, y, 0]])
+        # Add as a single collection (MUCH faster)
+        grid_coll = Line3DCollection(segments, colors=grid_color, linewidths=0.5, alpha=0.4)
+        grid_coll.set_clip_on(False) # Prevent clipping to the xlim/ylim box
+        self.ax.add_collection3d(grid_coll)
+        self._ground_elements.append(grid_coll)
+        line_y = self.ax.plot([0, 0], [-axis_len, axis_len], [0, 0], color='#2ecc71', linewidth=1.5, zorder=5)[0]
+        line_y.set_clip_on(False)
+        self._ground_elements.append(line_y)
+        
+        line_z = self.ax.plot([0, 0], [0, 0], [0, z_max], color='#3498db', linewidth=1.5, zorder=5)[0]
+        line_z.set_clip_on(False)
+        self._ground_elements.append(line_z)
 
-        for x in np.arange(-radius, radius + step, step):
-            line = self.ax.plot([x, x], [-radius, radius], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
-        for y in np.arange(-radius, radius + step, step):
-            line = self.ax.plot([-radius, radius], [y, y], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
+        # Labels for the origin axes
+        txt_x = self.ax.text(axis_len * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
+        txt_y = self.ax.text(0, axis_len * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
+        txt_z = self.ax.text(0, 0, z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
+        self._ground_elements.extend([txt_x, txt_y, txt_z])
         # Workspace boundary circle
         theta = np.linspace(0, 2*np.pi, 64)
         x_circle = radius * np.cos(theta)
         y_circle = radius * np.sin(theta)
         z_circle = np.zeros_like(x_circle)
         circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
+        circle_line.set_clip_on(False)
         self._ground_elements.append(circle_line)
         self._workspace_circle = circle_line
         self.draw_idle()
@@ -509,14 +650,12 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_zlim([0.0, new_z])
         
         # Update ground and grid to new radius
-        self.update_ground(new_radius)
+        self.update_ground(xy_max)
+        # Set camera distance (perspective) to a comfortable multiple of scene size
+        self.ax.dist = max(xy_max * 2, z_max) * 2.2
         
-        # Lock aspect ratio (keep X and Y same, Z scaled)
-        # For small robots, we want a taller-looking box for better perspective
-        self.ax.set_box_aspect((1, 1, 0.7))
-        
-        # Move camera closer (dist default is 10, smaller is closer)
-        self.ax.dist = 8.5
+        # Apply responsive limits and box aspect to fill widget
+        self._update_aspect_ratio()
         self.draw_idle()
 
     def draw_chain(self, positions, base_height=None):
@@ -666,6 +805,7 @@ class ArmCanvas(FigureCanvas):
         center_arr = np.array(center)
         verts, faces = cuboid_mesh(center_arr, size)
         coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#333', linewidths=0.5, alpha=0.7)
+        coll.set_clip_on(False)
         self.ax.add_collection3d(coll)
         self.obstacles.append({'center': center_arr, 'size': size})
         self.obstacle_meshes.append(coll)

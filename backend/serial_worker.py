@@ -1,32 +1,17 @@
-#!/usr/bin/env python3
-"""
-SerialWorker — Hardware USB-serial producer stub (Part 2, P2-T6).
-
-This class is a **placeholder** for the hardware phase.
-It exposes the same unified producer signal interface as SimWorker and
-ReplayWorker so that MainWindow can connect to it identically when hardware
-is available, without any UI changes.
-
-Future implementation (hardware phase):
-  1. Accept `port: str` and `baud: int` in __init__.
-  2. In run(): open pyserial port, read UTF-8 lines in a loop.
-  3. Pass each line through ``backend.parser.parse_sensor_line``.
-  4. Emit ``sample_received`` for valid dicts; ``producer_error`` for errors.
-  5. Emit ``producer_status`` for port open/close events.
-
-No changes to Part 1 filter or Part 3 calibration are required as long as
-the contract dict shape is honoured (see backend/sensor_contract.py §3.1).
-"""
-
+import serial
+import serial.tools.list_ports
 from PyQt6.QtCore import QThread, pyqtSignal
+from backend.parser import parse_sensor_line
+from backend.logger import get_logger
+
+_log = get_logger(__name__)
 
 
 class SerialWorker(QThread):
-    """Hardware USB-serial producer — NOT YET IMPLEMENTED.
+    """Hardware USB-serial producer.
 
-    Stub class that satisfies the unified producer signal interface so that
-    MainWindow wiring and Part 3 UI can reference this class without error.
-    Calling ``start()`` will raise ``NotImplementedError`` at runtime.
+    Reads UTF-8 lines from a serial port, parses them as JSON sensor samples,
+    and emits signals for the main window pipeline.
     """
 
     # ── Unified producer signal interface (P2-T1) ───────────────────────────
@@ -34,20 +19,53 @@ class SerialWorker(QThread):
     producer_error  = pyqtSignal(str)
     producer_status = pyqtSignal(str)
 
-    def __init__(self, port: str = "", baud: int = 115200, parent=None):
+    def __init__(self, port: str, baud: int = 115200, parent=None):
         super().__init__(parent)
         self._port = port
         self._baud = baud
         self._stop_flag = False
 
     def stop(self) -> None:
-        """Signal the run loop to exit (no-op in stub)."""
+        """Signal the run loop to exit."""
         self._stop_flag = True
 
     def run(self) -> None:
-        """Entry point — raises NotImplementedError (hardware phase only)."""
-        raise NotImplementedError(
-            "SerialWorker is not yet implemented. "
-            "Hardware phase: read UTF-8 lines from pyserial → "
-            "parse_sensor_line → emit sample_received."
-        )
+        """Entry point — opens port and enters read loop."""
+        _log.info("SerialWorker starting on %s at %d baud", self._port, self._baud)
+        
+        try:
+            # timeout=1.0 allows the loop to check self._stop_flag periodically
+            ser = serial.Serial(self._port, self._baud, timeout=1.0)
+            self.producer_status.emit(f"Connected to {self._port}")
+        except Exception as e:
+            _log.error("Failed to open serial port %s: %s", self._port, e)
+            self.producer_error.emit(f"Port Error: {e}")
+            return
+
+        try:
+            # Clear input buffer to avoid stale data
+            ser.reset_input_buffer()
+            
+            while not self._stop_flag:
+                if ser.in_waiting > 0:
+                    try:
+                        line = ser.readline().decode('utf-8', errors='replace').strip()
+                        if not line:
+                            continue
+                            
+                        sample = parse_sensor_line(line)
+                        if sample:
+                            self.sample_received.emit(sample)
+                    except Exception as e:
+                        _log.warning("Serial read/parse error: %s", e)
+                        # We don't emit producer_error for every bad line to avoid UI spam
+                else:
+                    # Small sleep if no data to prevent high CPU usage in the thread
+                    self.msleep(5)
+        except Exception as e:
+            _log.error("Serial worker loop crash: %s", e)
+            self.producer_error.emit(f"Serial Error: {e}")
+        finally:
+            ser.close()
+            _log.info("Serial port closed")
+            self.producer_status.emit("Disconnected")
