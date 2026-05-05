@@ -406,32 +406,45 @@ class ArmCanvas(FigureCanvas):
             self.draw_idle()
 
     def update_ground(self, radius: float):
-        """Rebuild ground plane, grid, and workspace circle to match new radius."""
+        """Rebuild ground plane, grid, and workspace circle to match new radius with Blender aesthetics."""
         # Remove existing ground elements
         for artist in self._ground_elements:
             artist.remove()
         self._ground_elements.clear()
+        
         self.workspace_radius = radius
-        # Ground plane
-        corners = np.array([
-            [-radius, -radius, 0],
-            [ radius, -radius, 0],
-            [ radius,  radius, 0],
-            [-radius,  radius, 0],
-        ])
-        faces = [[0,1,2],[0,2,3]]
-        ground = Poly3DCollection([corners[face] for face in faces],
-                                   facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
-        self.ax.add_collection3d(ground)
-        self._ground_elements.append(ground)
+        size = radius
+
         # Grid lines every 0.25m
         step = 0.25
-        for x in np.arange(-radius, radius + step, step):
-            line = self.ax.plot([x, x], [-radius, radius], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
-        for y in np.arange(-radius, radius + step, step):
-            line = self.ax.plot([-radius, radius], [y, y], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
-        self._ground_elements.append(line)
+        grid_color = '#3a3a3a'
+        for x in np.arange(-size, size + step, step):
+            if abs(x) > 1e-5:  # skip origin for axis lines
+                line = self.ax.plot([x, x], [-size, size], [0,0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
+        for y in np.arange(-size, size + step, step):
+            if abs(y) > 1e-5:
+                line = self.ax.plot([-size, size], [y, y], [0,0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
+
+        # Origin Axes (Blender colors: X=Red, Y=Green, Z=Blue)
+        z_max = self.ax.get_zlim()[1]
+        
+        line_x = self.ax.plot([-size, size], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
+        self._ground_elements.append(line_x)
+        
+        line_y = self.ax.plot([0, 0], [-size, size], [0, 0], color='#2ecc71', linewidth=1.5)[0]
+        self._ground_elements.append(line_y)
+        
+        line_z = self.ax.plot([0, 0], [0, 0], [0, z_max], color='#3498db', linewidth=1.5)[0]
+        self._ground_elements.append(line_z)
+
+        # Labels for the origin axes
+        txt_x = self.ax.text(size * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
+        txt_y = self.ax.text(0, size * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
+        txt_z = self.ax.text(0, 0, z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
+        self._ground_elements.extend([txt_x, txt_y, txt_z])
+
         # Workspace boundary circle
         theta = np.linspace(0, 2*np.pi, 64)
         x_circle = radius * np.cos(theta)
