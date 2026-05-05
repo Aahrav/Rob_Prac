@@ -416,7 +416,18 @@ class KinematicChain:
         )
 
         # Check reachability: rough upper bound on reach
-        max_reach = sum(abs(j.a) for j in self.joints) + sum(abs(j.d) for j in self.joints)
+        # For revolute joints, contribution is |a| (link length)
+        # For prismatic joints, contribution is |a| + max(|d|, |d + q_max|) (max extension)
+        max_reach = 0.0
+        for j in self.joints:
+            if j.type == 'prismatic':
+                # Max extension: current d plus maximum stroke
+                d_max = abs(j.d)
+                if j.q_max is not None:
+                    d_max = max(d_max, abs(j.q_max))
+                max_reach += abs(j.a) + d_max
+            else:
+                max_reach += abs(j.a) + abs(j.d)
         dist = np.linalg.norm(target_position - np.array([0.0, 0.0, self.base_height]))
         log.debug("IK reachability | max_reach=%.4f | dist_from_base=%.4f", max_reach, dist)
         if dist > max_reach * 1.05:
@@ -424,7 +435,7 @@ class KinematicChain:
                 "IK aborted — target out of reach (dist=%.4f > max_reach*1.05=%.4f)",
                 dist, max_reach * 1.05,
             )
-            return None  # clearly out of reach, skip solver
+            return None
 
         def _run_ik(start_angles, run_label=""):
             angles = start_angles[:]

@@ -23,3 +23,5 @@ config.yaml
 # OS
 .DS_Store
 Thumbs.db
+test_ik.py
+test_presets.py
