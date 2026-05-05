@@ -50,21 +50,13 @@ class KinematicChain:
             transforms.append(transforms[-1] @ T)
         return transforms
 
-def preset_ur5():
-    joints = [
-        DHJoint('revolute', 0,  0.0892,  0.0,     90.0,  "J1"),
-        DHJoint('revolute', 0,  0.0,    -0.4250,   0.0,  "J2"),
-        DHJoint('revolute', 0,  0.0,    -0.3922,   0.0,  "J3"),
-        DHJoint('revolute', 0,  0.1093,  0.0,      90.0, "J4"),
-        DHJoint('revolute', 0,  0.0948,  0.0,     -90.0, "J5"),
-        DHJoint('revolute', 0,  0.0825,  0.0,       0.0, "J6"),
-    ]
-    return KinematicChain(joints)
+from backend.robot_presets import get_preset
+chain = get_preset("ABB IRB 120")
 
 def test_angles(angles):
     ee = chain.forward_kinematics(angles)[-1][:3, 3]
     print(f"Angles {angles} -> EE: {ee}")
 
-chain = preset_ur5()
 test_angles([0, 0, 0, 0, 0, 0])
-test_angles([0, -90, 0, 0, 0, 0])
+test_angles([0, 90, 0, 0, 0, 0])
+test_angles([0, 0, 90, 0, 0, 0])

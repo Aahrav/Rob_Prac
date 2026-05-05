@@ -328,16 +328,21 @@ class KinematicChain:
         transforms = [T_base]
 
         for i, joint in enumerate(self.joints):
-            # Check if we have an angle override for this specific joint index
-            q_val = joint_angles[i] if (joint_angles and i < len(joint_angles)) else None
-
+            # Joint displacement q (0.0 if not provided)
+            q = 0.0
+            if joint_angles is not None and i < len(joint_angles):
+                q = joint_angles[i]
+            
             if joint.type == 'revolute':
-                theta = np.radians(q_val if q_val is not None else joint.theta)
+                # theta_final = theta_base + q_revolute
+                theta = np.radians(q + joint.theta)
                 d = joint.d
             elif joint.type == 'prismatic':
+                # d_final = d_base + q_prismatic
                 theta = np.radians(joint.theta)
-                d = q_val if q_val is not None else joint.d
-            else:  # fixed
+                d = q + joint.d
+            else:
+                # Fixed: T is constant from DH params
                 theta = np.radians(joint.theta)
                 d = joint.d
 
@@ -404,7 +409,7 @@ class KinematicChain:
             else:
                 contribution = abs(j.a) + abs(j.d)
             max_reach += contribution
-            log.info("Joint %d (%s) reach contribution: %.4f", i+1, j.name, contribution)
+            print(f"DEBUG: Joint {i+1} ({j.name}) reach contribution: {contribution:.4f}")
         return max_reach
 
     def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
