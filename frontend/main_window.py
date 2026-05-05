@@ -874,9 +874,23 @@ class MainWindow(QMainWindow):
             replay_file = port[len("REPLAY:"):]
             self._start_replay(replay_file)
         else:
-            self.connection_panel.set_status(f"Real serial not yet implemented: {port}")
-            self.connection_panel.set_connected(False)
+            self._start_serial(port, baud)
         self._update_status_bar_mode()
+        self._update_panel_visibility()
+
+    def _start_serial(self, port: str, baud: int):
+        """Start the SerialWorker (P2-T6) for hardware communication."""
+        from backend.serial_worker import SerialWorker
+        worker = SerialWorker(port, baud)
+        qc = Qt.ConnectionType.QueuedConnection
+        worker.sample_received.connect(self._on_sample_received, qc)
+        worker.producer_error.connect(self._on_producer_error, qc)
+        worker.producer_status.connect(self._on_producer_status, qc)
+        self._active_worker = worker
+        worker.start()
+        self.connection_panel.set_connected(True)
+        self.connection_panel.set_status(f"Serial: {port}")
+        self.sb_message.setText(f"Connected to {port}")
         self._update_panel_visibility()
 
     def _on_disconnect_requested(self):

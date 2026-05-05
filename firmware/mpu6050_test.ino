@@ -36,20 +36,36 @@ void loop() {
 
   mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-  // Convert to g-forces and degrees/second (example scaling)
-  float accel_x = ax / 16384.0;  // ±2g range
+  // Convert to g-forces and degrees/second
+  float accel_x = ax / 16384.0;
   float accel_y = ay / 16384.0;
   float accel_z = az / 16384.0;
-  float gyro_x = gx / 131.0;     // ±250°/s range
-  float gyro_y = gy / 131.0;
-  float gyro_z = gz / 131.0;
+  float gyro_x  = gx / 131.0;
+  float gyro_y  = gy / 131.0;
+  float gyro_z  = gz / 131.0;
 
-  Serial.print("ax: "); Serial.print(accel_x, 2);
-  Serial.print(" ay: "); Serial.print(accel_y, 2);
-  Serial.print(" az: "); Serial.print(accel_z, 2);
-  Serial.print(" gx: "); Serial.print(gyro_x, 2);
-  Serial.print(" gy: "); Serial.print(gyro_y, 2);
-  Serial.print(" gz: "); Serial.println(gyro_z, 2);
+  // Calculate Roll and Pitch from Accelerometer (degrees)
+  // atan2(ay, az) gives roll; atan2(-ax, sqrt(ay^2 + az^2)) gives pitch
+  float roll  = atan2(accel_y, accel_z) * 180.0 / PI;
+  float pitch = atan2(-accel_x, sqrt(accel_y * accel_y + accel_z * accel_z)) * 180.0 / PI;
+  float yaw   = 0.0; // Yaw cannot be accurately determined from accel alone
 
-  delay(20); // ~50Hz
+  // Output JSON string
+  Serial.print("{\"t\":");
+  Serial.print(millis());
+  Serial.print(",\"r\":");
+  Serial.print(roll, 2);
+  Serial.print(",\"p\":");
+  Serial.print(pitch, 2);
+  Serial.print(",\"y\":");
+  Serial.print(yaw, 2);
+  Serial.print(",\"gx\":");
+  Serial.print(gyro_x, 2);
+  Serial.print(",\"gy\":");
+  Serial.print(gyro_y, 2);
+  Serial.print(",\"gz\":");
+  Serial.print(gyro_z, 2);
+  Serial.println("}");
+
+  delay(10); // ~100Hz output rate
 }
