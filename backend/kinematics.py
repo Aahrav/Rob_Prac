@@ -33,10 +33,15 @@ def compute_arm_positions(q1: float, q2: float, q3: float,
     """
     Forward kinematics for 6-DOF arm: compute joint positions from joint angles (degrees).
 
+    Convention:
+        q2 > 0 lifts the upper arm UP (positive Z)
+        q2 < 0 lowers the upper arm DOWN (toward ground)
+        q3 > 0 bends the elbow so the forearm points upward relative to upper arm
+
     Joints:
-        q1: base yaw (rotation about Z)
-        q2: shoulder pitch (rotation about Y)
-        q3: elbow pitch (rotation about Y)
+        q1: base yaw (rotation about Z, CCW looking down)
+        q2: shoulder pitch (rotation about Y, positive = up)
+        q3: elbow pitch (rotation about Y, positive = bend up relative to upper arm)
         q4: wrist roll (rotation about X)
         q5: wrist pitch (rotation about Y)
         q6: wrist yaw (rotation about Z)
@@ -44,11 +49,11 @@ def compute_arm_positions(q1: float, q2: float, q3: float,
     Returns:
         positions: (6, 3) numpy array for:
             0: base (0,0,0)
-            1: shoulder
+            1: shoulder (0,0,base_height)
             2: elbow
             3: wrist center
             4: gripper tip
-            5: duplicate tip
+            5: duplicate tip (for 6-point chain compatibility)
     """
     if config is None:
         config = ArmConfig()
@@ -66,54 +71,56 @@ def compute_arm_positions(q1: float, q2: float, q3: float,
     Lg = config.gripper_offset
     h0 = config.base_height
 
-    # Shoulder position (origin of frame 1)
+    # Shoulder position
     O1 = np.array([0.0, 0.0, h0])
 
-    # Rotation matrices (intrinsic order: yaw, pitch, pitch, then wrist roll/pitch/yaw)
+    # Base yaw rotation Rz(q1)
     c1, s1 = np.cos(q1r), np.sin(q1r)
     R1 = np.array([[c1, -s1, 0],
-                   [s1, c1, 0],
-                   [0, 0, 1]])
+                   [s1,  c1, 0],
+                   [0,    0,  1]])
 
+    # Shoulder pitch Ry(q2) — with sign convention: positive q2 = up
+    # Standard Ry matrix: [cos, 0, sin; 0, 1, 0; -sin, 0, cos]
+    # We use the transpose (equivalent to Ry(-q2)) so that positive q2 lifts the arm UP
     c2, s2 = np.cos(q2r), np.sin(q2r)
-    R2 = np.array([[c2, 0, s2],
-                   [0, 1, 0],
-                   [-s2, 0, c2]])
+    R2 = np.array([[ c2, 0, -s2],
+                   [ 0,  1,  0 ],
+                   [ s2, 0,  c2]])
 
+    # Elbow pitch Ry(q3) — same convention as q2
     c3, s3 = np.cos(q3r), np.sin(q3r)
-    R3 = np.array([[c3, 0, s3],
-                   [0, 1, 0],
-                   [-s3, 0, c3]])
+    R3 = np.array([[ c3, 0, -s3],
+                   [ 0,  1,  0 ],
+                   [ s3, 0,  c3]])
 
-    # Combined rotation to wrist center (frame 3)
-    R03 = R1 @ R2 @ R3
+    # Upper arm tip (elbow) position: shoulder + R1 * (R2 * [L1, 0, 0])
+    # R2 @ [L1,0,0] = [cos(q2)*L1, 0, sin(q2)*L1]  →  positive q2 lifts UP ✓
+    O2 = O1 + R1 @ (R2 @ np.array([L1, 0, 0]))
 
-    # Positions: shoulder -> elbow along X axis of frame2
-    O2 = O1 + R1 @ R2 @ np.array([L1, 0, 0])
-    # Elbow -> wrist along X axis of frame3
-    O3 = O2 + R1 @ R2 @ R3 @ np.array([L2, 0, 0])  # wrist center
+    # Forearm tip (wrist center) position: elbow + R1 * R2 * (R3 * [L2, 0, 0])
+    O3 = O2 + R1 @ R2 @ (R3 @ np.array([L2, 0, 0]))
 
-    # Wrist rotations: roll about X, pitch about Y, yaw about Z (all intrinsic)
+    # Wrist rotations
     c4, s4 = np.cos(q4r), np.sin(q4r)
-    R4 = np.array([[1, 0, 0],
-                   [0, c4, -s4],
-                   [0, s4, c4]])
+    R4 = np.array([[1,  0,   0],
+                   [0,  c4, -s4],
+                   [0,  s4,  c4]])
     c5, s5 = np.cos(q5r), np.sin(q5r)
-    R5 = np.array([[c5, 0, s5],
-                   [0, 1, 0],
-                   [-s5, 0, c5]])
+    R5 = np.array([[ c5, 0, -s5],
+                   [ 0,  1,  0 ],
+                   [ s5, 0,  c5]])
     c6, s6 = np.cos(q6r), np.sin(q6r)
     R6 = np.array([[c6, -s6, 0],
-                   [s6, c6, 0],
-                   [0, 0, 1]])
+                   [s6,  c6, 0],
+                   [0,    0,  1]])
     R36 = R4 @ R5 @ R6
 
-    # Full rotation from base to tool frame
-    R06 = R03 @ R36
+    # Full rotation base→tool
+    R06 = R1 @ R2 @ R3 @ R36
 
-    # Tool tip: from wrist center along X axis of tool frame
-    tool_offset = R06[:, 0] * Lg
-    O4 = O3 + tool_offset
+    # Tool tip along X axis of tool frame
+    O4 = O3 + R06[:, 0] * Lg
 
     base = np.array([0.0, 0.0, 0.0])
 
