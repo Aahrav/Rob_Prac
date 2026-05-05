@@ -142,7 +142,7 @@ def preset_ur5() -> KinematicChain:
         _rev(0,  0.0948,  0.0,     -90.0, "J5 — Wrist 2",      -360, 360),
         _rev(0,  0.0825,  0.0,       0.0, "J6 — Wrist 3",      -360, 360),
     ]
-    return KinematicChain(joints, base_height=0.0)
+    return KinematicChain(joints, base_height=0.0, name="UR5")
 
 
 def preset_puma560() -> KinematicChain:
@@ -160,7 +160,7 @@ def preset_puma560() -> KinematicChain:
         _rev(0,  0.0,     0.0,     -90.0,  "J5 — Wrist Pitch", -100, 100),
         _rev(0,  0.0,     0.0,       0.0,  "J6 — Wrist Yaw",   -266, 266),
     ]
-    return KinematicChain(joints, base_height=0.0)
+    return KinematicChain(joints, base_height=0.0, name="PUMA 560")
 
 
 def preset_stanford_arm() -> KinematicChain:
@@ -178,7 +178,7 @@ def preset_stanford_arm() -> KinematicChain:
         _rev(0,     0.0,    0.0,     90.0, "J5 — Wrist Pitch", -90,  90),
         _rev(0,     0.263,  0.0,      0.0, "J6 — Wrist Yaw",   -180, 180),
     ]
-    return KinematicChain(joints, base_height=0.0)
+    return KinematicChain(joints, base_height=0.0, name="Stanford Arm")
 
 
 def preset_abb_irb120() -> KinematicChain:
@@ -188,14 +188,14 @@ def preset_abb_irb120() -> KinematicChain:
     DH approximation for visualisation.
     """
     joints = [
-        _rev(0,  0.290,  0.0,    -90.0, "J1 — Base",         -165, 165),
-        _rev(0,  0.0,    0.270,   0.0,  "J2 — Shoulder",     -110, 110),
-        _rev(0,  0.0,    0.070,   90.0, "J3 — Elbow",        -110, 70),
-        _rev(0,  0.302,  0.0,    -90.0, "J4 — Wrist 1",      -160, 160),
-        _rev(0,  0.0,    0.0,     90.0, "J5 — Wrist 2",      -120, 120),
-        _rev(0,  0.072,  0.0,      0.0, "J6 — Wrist 3",      -400, 400),
+        _rev(0,   0.290,  0.0,    -90.0, "J1 — Base",         -165, 165),
+        _rev(-90, 0.0,    0.270,   0.0,  "J2 — Shoulder",     -110, 110),
+        _rev(90,  0.0,    0.070,  -90.0, "J3 — Elbow",        -110, 70),
+        _rev(0,   0.302,  0.0,     90.0, "J4 — Wrist 1",      -160, 160),
+        _rev(0,   0.0,    0.0,    -90.0, "J5 — Wrist 2",      -120, 120),
+        _rev(0,   0.072,  0.0,      0.0, "J6 — Wrist 3",      -400, 400),
     ]
-    return KinematicChain(joints, base_height=0.0)
+    return KinematicChain(joints, base_height=0.0, name="ABB IRB 120")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

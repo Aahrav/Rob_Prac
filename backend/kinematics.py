@@ -282,9 +282,10 @@ class DHJoint:
 
 class KinematicChain:
     """A chain of DH joints representing a robotic manipulator."""
-    def __init__(self, joints: List[DHJoint] = None, base_height: float = 0.0):
-        self.joints = joints or []
-        self.base_height = base_height  # base origin offset in Z
+    def __init__(self, joints: List[DHJoint] = None, base_height: float = 0.0, name: str = ""):
+        self.joints = joints if joints is not None else []
+        self.base_height = base_height
+        self.name = name
 
     def add_joint(self, joint: DHJoint):
         self.joints.append(joint)
@@ -335,7 +336,7 @@ class KinematicChain:
                 d = joint.d
             elif joint.type == 'prismatic':
                 theta = np.radians(joint.theta)
-                d = joint.d + (q_val if q_val is not None else 0.0)
+                d = q_val if q_val is not None else joint.d
             else:  # fixed
                 theta = np.radians(joint.theta)
                 d = joint.d
@@ -387,7 +388,26 @@ class KinematicChain:
         joints = [DHJoint.from_dict(j) for j in data['joints']]
         return KinematicChain(joints, base_height=data.get('base_height', 0.0))
 
-    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 500, tol: float = 0.005) -> Optional[List[float]]:
+    def get_max_reach(self) -> float:
+        """
+        Calculate the maximum possible distance the end-effector can reach from the base.
+        This is a conservative upper bound (sum of all link lengths and prismatic strokes).
+        """
+        max_reach = 0.0
+        for i, j in enumerate(self.joints):
+            contribution = 0.0
+            if j.type == 'prismatic':
+                d_max = abs(j.d)
+                if j.q_max is not None:
+                    d_max = max(d_max, abs(j.q_max))
+                contribution = abs(j.a) + d_max
+            else:
+                contribution = abs(j.a) + abs(j.d)
+            max_reach += contribution
+            log.info("Joint %d (%s) reach contribution: %.4f", i+1, j.name, contribution)
+        return max_reach
+
+    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
         """
         Numerical IK using damped least-squares (Levenberg-Marquardt) Jacobian.
         Solves for joint angles (in degrees for revolute, meters for prismatic) that place
@@ -415,44 +435,30 @@ class KinematicChain:
             [(i, self.joints[i].type, self.joints[i].name) for i in var_indices],
         )
 
-        # Check reachability: rough upper bound on reach
-        # For revolute joints, contribution is |a| (link length)
-        # For prismatic joints, contribution is |a| + max(|d|, |d + q_max|) (max extension)
-        max_reach = 0.0
-        for j in self.joints:
-            if j.type == 'prismatic':
-                # Max extension: current d plus maximum stroke
-                d_max = abs(j.d)
-                if j.q_max is not None:
-                    d_max = max(d_max, abs(j.q_max))
-                max_reach += abs(j.a) + d_max
-            else:
-                max_reach += abs(j.a) + abs(j.d)
+        # Quick reachability check
+        max_reach = self.get_max_reach()
         dist = np.linalg.norm(target_position - np.array([0.0, 0.0, self.base_height]))
         log.debug("IK reachability | max_reach=%.4f | dist_from_base=%.4f", max_reach, dist)
         if dist > max_reach * 1.05:
-            log.warning(
-                "IK aborted — target out of reach (dist=%.4f > max_reach*1.05=%.4f)",
-                dist, max_reach * 1.05,
-            )
+            log.warning("IK aborted — target out of reach (dist=%.4f > max_reach*1.05=%.4f)", dist, max_reach * 1.05)
             return None
 
-        def _run_ik(start_angles, run_label=""):
-            angles = start_angles[:]
+        def _run_ik(start_full_angles, run_label=""):
+            angles = list(start_full_angles)
             best_angles = angles[:]
             best_error = float('inf')
 
-            # Finite-difference delta: 1° for revolute
-            delta_deg = 1.0
+            # Finite-difference delta: 0.01° for revolute, 0.1mm for prismatic
+            delta_deg = 0.01
             # Damping factor — start small, increase if stuck
             damping = 0.01
-            max_step_deg = 15.0
-            max_step_m = 0.05
+            max_step_deg = 10.0
+            max_step_m = 0.02
 
             log.debug(
                 "IK run%s | start=%s",
                 f" [{run_label}]" if run_label else "",
-                [round(a, 3) for a in start_angles],
+                [round(a, 3) for a in start_full_angles],
             )
 
             for it in range(max_iter):
@@ -481,7 +487,7 @@ class KinematicChain:
                         it, err_norm,
                         [round(a, 3) for a in angles],
                     )
-                    return angles, best_error
+                    return angles, err_norm
 
                 # Build Jacobian J (3 x len(var_indices)) via finite differences
                 J = np.zeros((3, len(var_indices)))
@@ -523,18 +529,29 @@ class KinematicChain:
 
         # First try: use current joint angles as initial guess
         if initial_angles is None:
-            start = []
+            initial_full = []
             for j in self.joints:
                 if j.type == 'revolute':
-                    start.append(j.theta)
+                    initial_full.append(j.theta)
                 elif j.type == 'prismatic':
-                    start.append(j.d)
+                    initial_full.append(j.d)
                 else:
-                    start.append(0.0)
+                    initial_full.append(0.0)
         else:
-            start = list(initial_angles)
+            # If initial_angles is provided, it might be just variable joints or full
+            if len(initial_angles) == len(var_indices):
+                initial_full = []
+                var_idx = 0
+                for j in self.joints:
+                    if j.type in ('revolute', 'prismatic'):
+                        initial_full.append(initial_angles[var_idx])
+                        var_idx += 1
+                    else:
+                        initial_full.append(0.0)
+            else:
+                initial_full = list(initial_angles)
 
-        result_angles, result_error = _run_ik(start, run_label="initial")
+        result_angles, result_error = _run_ik(initial_full, run_label="initial")
         if result_error < best_overall_error:
             best_overall_error = result_error
             best_overall_angles = result_angles
@@ -545,7 +562,7 @@ class KinematicChain:
 
         # Random restarts
         rng = np.random.default_rng(42)
-        for restart_idx in range(5):
+        for restart_idx in range(10):
             rand_start = []
             for j in self.joints:
                 if j.type == 'revolute':
@@ -576,7 +593,8 @@ class KinematicChain:
                 best_overall_error,
                 [round(a, 3) for a in best_overall_angles],
             )
-            return best_overall_angles
+            # Return only the variable joint values for the animation
+            return [best_overall_angles[i] for i in var_indices]
 
         log.warning(
             "IK FAILED | best_err=%.5f (threshold 0.05 m) | target=(%.4f,%.4f,%.4f)",

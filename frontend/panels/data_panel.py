@@ -92,18 +92,25 @@ class DataPanel(QWidget):
             grid.addWidget(lbl_unit, r, 2)
             return lbl_val
 
-        self.lbl_roll  = _row(0, "ROLL",  "°")
-        self.lbl_pitch = _row(1, "PITCH", "°")
-        self.lbl_yaw   = _row(2, "YAW",   "°")
+        self.lbl_angles = []
+        for i in range(6):
+            label = _row(i, f"J{i+1}", "°")
+            label.setVisible(i < 3)  # default to 3
+            self.lbl_angles.append(label)
+            
+        # Legacy aliases for 3-DOF compatibility
+        self.lbl_roll  = self.lbl_angles[0]
+        self.lbl_pitch = self.lbl_angles[1]
+        self.lbl_yaw   = self.lbl_angles[2]
 
         # ── Divider ────────────────────────────────────────────────────────
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("color: #1e1e1e; background: #1e1e1e; border: none; max-height: 1px;")
-        grid.addWidget(divider, 3, 0, 1, 3)
+        self.divider = QFrame()
+        self.divider.setFrameShape(QFrame.Shape.HLine)
+        self.divider.setStyleSheet("color: #1e1e1e; background: #1e1e1e; border: none; max-height: 1px;")
+        grid.addWidget(self.divider, 6, 0, 1, 3)
 
         # ── Packets/sec row (P3-T3) ────────────────────────────────────────
-        self.lbl_rate = _row(4, "PKT/S", "pps")
+        self.lbl_rate = _row(7, "PKT/S", "pps")
         self.lbl_rate.setText("   0")
         self.lbl_rate.setStyleSheet(
             VAL_LABEL_STYLE.replace("#92ccff", _RATE_COLOR_ZERO)
@@ -113,29 +120,24 @@ class DataPanel(QWidget):
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def update_values(self, roll: float, pitch: float, yaw: float,
-                      rate: float = None) -> None:
-        """Update roll/pitch/yaw readouts.
-
-        Args:
-            roll, pitch, yaw: angles in degrees.
-            rate: optional explicit pps value; if provided, overrides the
-                  internal timer-based counter display directly.  Useful for
-                  Part 2's _on_sample_received pipeline if it tracks rate
-                  centrally.  Leave None to use the built-in counter.
-        """
-        self.lbl_roll.setText(f"{roll:+7.1f}")
-        self.lbl_pitch.setText(f"{pitch:+7.1f}")
-        self.lbl_yaw.setText(f"{yaw:+7.1f}")
-
-        # Colour-code angle labels by magnitude
-        for val, lbl in [
-            (abs(roll),  self.lbl_roll),
-            (abs(pitch), self.lbl_pitch),
-            (abs(yaw),   self.lbl_yaw),
-        ]:
-            color = "#ffba4b" if val > 60 else "#92ccff" if val > 30 else "#abcae8"
+    def update_values(self, *angles, rate: float = None) -> None:
+        """Update joint angle readouts. Handles 1 to 6 angles."""
+        num_angles = len(angles)
+        
+        for i, val in enumerate(angles):
+            if i >= 6: break
+            lbl = self.lbl_angles[i]
+            lbl.setVisible(True)
+            lbl.setText(f"{val:+7.1f}")
+            
+            # Colour-code by magnitude
+            mag = abs(val)
+            color = "#ffba4b" if mag > 60 else "#92ccff" if mag > 30 else "#abcae8"
             lbl.setStyleSheet(VAL_LABEL_STYLE.replace("#92ccff", color))
+            
+        # Hide unused labels (if we moved from 6 joints to 3)
+        for i in range(num_angles, 6):
+            self.lbl_angles[i].setVisible(False)
 
         # If caller supplies an explicit rate, show it immediately
         if rate is not None:

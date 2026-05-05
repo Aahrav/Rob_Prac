@@ -6,11 +6,12 @@ Kinetic Obsidian theme: no QGroupBox, tight grid, horizontal button bar, status 
 
 import time
 import math
+from typing import List, Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QSlider, QPushButton, QDoubleSpinBox, QGridLayout, QFrame)
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
-from backend.kinematics import inverse_kinematics_3dof, ArmConfig
+from backend.kinematics import inverse_kinematics_3dof, ArmConfig, KinematicChain
 from backend.logger import get_logger
 
 log = get_logger(__name__)
@@ -97,17 +98,17 @@ SECTION_LABEL = "color: #89929b; font-size: 10px; font-weight: 600; letter-spaci
 class TrajectoryPanel(QWidget):
     """Panel for interactive Cartesian control."""
 
-    target_angles_updated = pyqtSignal(float, float, float)
+    target_angles_updated = pyqtSignal(object)  # List of all variable joint values
 
-    def __init__(self, config: ArmConfig = None, parent=None):
+    def __init__(self, config: ArmConfig = None, chain=None, parent=None):
         super().__init__(parent)
 
         self.config = config if config is not None else ArmConfig()
         self.current_angles = [0.0, 0.0, 0.0]  # Actual current joint angles
         self.current_pos = [0.5, 0.0, 0.3]
         self.target_pos = None
-        self.chain = None
-        self.use_custom_chain = False
+        self.use_custom_chain = chain is not None
+        self.chain = chain
         self.animating = False
         self.animation_timer = None
         self.animation_start_angles = []
@@ -115,6 +116,13 @@ class TrajectoryPanel(QWidget):
         self._var_joint_indices = None
 
         self._build_ui()
+        
+        if chain:
+            name = getattr(chain, 'name', '') or "Custom Chain"
+            self.lbl_active_chain.setText(f"Active: {name}")
+        else:
+            self.lbl_active_chain.setText("Active: Standard 3-DOF")
+        
         self.btn_animate.setEnabled(False)
         self.update_workspace_ranges()
 
@@ -180,6 +188,10 @@ class TrajectoryPanel(QWidget):
             setattr(self, f"spin_{key}", spinbox)
 
         layout.addLayout(grid)
+
+        self.lbl_active_chain = QLabel("Active: Standard 3-DOF")
+        self.lbl_active_chain.setStyleSheet("color: #3498db; font-size: 10px; font-weight: bold; margin-bottom: 5px;")
+        layout.addWidget(self.lbl_active_chain)
 
         # Workspace info
         self.lbl_workspace = QLabel("Max reach: — m")
@@ -264,11 +276,13 @@ class TrajectoryPanel(QWidget):
         )
 
         if self.use_custom_chain and self.chain is not None:
-            max_xy = sum(joint.a for joint in self.chain.joints)
-            xy_dist = np.sqrt(x*x + y*y)
-            log.debug("Custom chain reach check | max_xy=%.4f | xy_dist=%.4f", max_xy, xy_dist)
-            if xy_dist > max_xy * 1.05:
-                log.warning("Target out of XY reach (%.4f > %.4f)", xy_dist, max_xy * 1.05)
+            max_reach = self.chain.get_max_reach()
+            dist = np.linalg.norm(np.array(self.target_pos) - np.array([0.0, 0.0, self.chain.base_height]))
+            if dist > max_reach * 1.05:
+                log.warning(
+                    "Target out of reach | dist=%.4f (target=%s, base_h=%.2f) | max_reach_limit=%.4f (max_reach=%.4f)",
+                    dist, self.target_pos, self.chain.base_height, max_reach * 1.05, max_reach
+                )
                 self.lbl_status.setText("⬤  Out of reach")
                 self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
                 return
@@ -325,7 +339,7 @@ class TrajectoryPanel(QWidget):
                 [round(v, 3) for v in target_vars],
             )
             self.current_angles = start_vars[:3]
-            self.target_angles_updated.emit(*start_vars[:3])
+            self.target_angles_updated.emit(start_vars)
             self._var_joint_indices = var_indices
             self.animation_start_angles = start_vars
             self.animation_target_angles = target_vars
@@ -401,12 +415,7 @@ class TrajectoryPanel(QWidget):
                 elif joint.type == 'prismatic':
                     joint.d = current[i]
 
-        if n >= 3:
-            self.target_angles_updated.emit(current[0], current[1], current[2])
-        elif n > 0:
-            # Fewer than 3 variable joints — still emit to trigger canvas redraw
-            padded = current + [0.0] * (3 - n)
-            self.target_angles_updated.emit(padded[0], padded[1], padded[2])
+        self.target_angles_updated.emit(current)
 
         if t >= 1.0:
             self.animation_timer.stop()
@@ -435,8 +444,19 @@ class TrajectoryPanel(QWidget):
         self.lbl_status.setText("⬤  Stopped")
         self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
 
-    def set_current_angles(self, q1, q2, q3):
-        self.current_angles = [q1, q2, q3]
+    def set_current_angles(self, angles: list):
+        """Update internal state with current angles from the arm."""
+        self.current_angles = list(angles)
+
+    def set_chain(self, chain: KinematicChain):
+        self.use_custom_chain = True
+        self.chain = chain
+        if chain:
+            name = getattr(chain, 'name', '') or "Custom Chain"
+            self.lbl_active_chain.setText(f"Active: {name}")
+        else:
+            self.lbl_active_chain.setText("Active: Custom (None)")
+        self.update_workspace_ranges()
 
     def update_config(self, new_config: ArmConfig):
         self.config = new_config
@@ -444,13 +464,16 @@ class TrajectoryPanel(QWidget):
 
     def update_workspace_ranges(self):
         if self.use_custom_chain and self.chain is not None and len(self.chain.joints) > 0:
-            total_reach = sum(joint.a for joint in self.chain.joints)
-            total_reach += sum(joint.d for joint in self.chain.joints if joint.type == 'prismatic')
+            total_reach = self.chain.get_max_reach()
+            self.lbl_workspace.setText(f"Max reach: {total_reach:.3f} m")
+            self.lbl_workspace.setStyleSheet("color: #2ecc71; font-weight: 600;")
             base_h = self.chain.base_height
         else:
             cfg = self.config
             total_reach = cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
             base_h = cfg.base_height
+            self.lbl_workspace.setText(f"Max reach: {total_reach:.2f} m")
+            self.lbl_workspace.setStyleSheet("color: #89929b; font-size: 11px;")
 
         margin = total_reach * 0.05
         max_xy = total_reach + margin
