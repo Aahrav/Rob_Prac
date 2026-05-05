@@ -131,11 +131,10 @@ class ReplayControlBar(QWidget):
 
         root.addWidget(_vline())
 
-        # ── Transport controls ─────────────────────────────────────
-        self.btn_stop       = QPushButton("⏹")
-        self.btn_step_back  = QPushButton("⏮")
-        self.btn_play_pause = QPushButton("▶")
-        self.btn_step_fwd   = QPushButton("⏭")
+        self.btn_stop       = QPushButton("⏹\uFE0E")
+        self.btn_step_back  = QPushButton("⏮\uFE0E")
+        self.btn_play_pause = QPushButton("▶\uFE0E")
+        self.btn_step_fwd   = QPushButton("⏭\uFE0E")
 
         for btn, tip in [
             (self.btn_stop,       "Stop & reset to frame 0"),
@@ -295,6 +294,7 @@ class ReplayControlBar(QWidget):
     def _on_buffer_changed(self, count: int) -> None:
         self.scrubber.setMaximum(max(0, count - 1))
         self._update_labels(0)
+        self._update_all(self._ctrl.state.name)
 
     def _on_frame_changed(self, idx: int) -> None:
         if not self._scrubbing:
@@ -320,7 +320,7 @@ class ReplayControlBar(QWidget):
         is_playing  = state == ReplayState.PLAYING
         has_buffer  = self._ctrl.frame_count > 0
 
-        self.btn_play_pause.setText("⏸" if is_playing else "▶")
+        self.btn_play_pause.setText("⏸\uFE0E" if is_playing else "▶\uFE0E")
         self.btn_play_pause.setStyleSheet(_BTN_PLAY_ACTIVE if is_playing else _BTN_BASE)
         self.btn_play_pause.setEnabled(has_buffer)
         self.btn_stop.setEnabled(has_buffer and state != ReplayState.STOPPED)
