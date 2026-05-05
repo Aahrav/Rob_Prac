@@ -380,6 +380,7 @@ class ArmCanvas(FigureCanvas):
         base_verts, base_faces = cuboid_mesh(base_center, base_size)
         base_color = self.collision_color if 'base' in coll else self.default_colors['base']
         base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=base_color, edgecolors='#444', linewidths=0.5)
+        base_coll.set_clip_on(False)
         self.ax.add_collection3d(base_coll)
         self.meshes['base'] = base_coll
 
@@ -388,6 +389,7 @@ class ArmCanvas(FigureCanvas):
         upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, upper_radius, resolution=12)
         upper_color = self.collision_color if 'upper' in coll else self.default_colors['upper']
         upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
+        upper_coll.set_clip_on(False)
         self.ax.add_collection3d(upper_coll)
         self.meshes['upper'] = upper_coll
 
@@ -396,6 +398,7 @@ class ArmCanvas(FigureCanvas):
         lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, lower_radius, resolution=10)
         lower_color = self.collision_color if 'lower' in coll else self.default_colors['lower']
         lower_coll = Poly3DCollection([lower_verts[face] for face in lower_faces], facecolors=lower_color, edgecolors='#444', linewidths=0.5)
+        lower_coll.set_clip_on(False)
         self.ax.add_collection3d(lower_coll)
         self.meshes['lower'] = lower_coll
 
@@ -404,6 +407,7 @@ class ArmCanvas(FigureCanvas):
         gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, gripper_radius, resolution=8)
         gripper_color = self.collision_color if 'gripper' in coll else self.default_colors['gripper']
         gripper_coll = Poly3DCollection([gripper_verts[face] for face in gripper_faces], facecolors=gripper_color, edgecolors='#444', linewidths=0.5)
+        gripper_coll.set_clip_on(False)
         self.ax.add_collection3d(gripper_coll)
         self.meshes['gripper'] = gripper_coll
 
@@ -418,6 +422,7 @@ class ArmCanvas(FigureCanvas):
             face_arrays = [j_verts[face] for face in j_faces]
             joint_color = self.collision_color if ['shoulder','elbow','wrist'][idx] in coll else self.default_colors[color_key]
             joint_coll = Poly3DCollection(face_arrays, facecolors=joint_color, edgecolors='#333', linewidths=0.3)
+            joint_coll.set_clip_on(False)
             self.ax.add_collection3d(joint_coll)
             self.meshes['joints'].append(joint_coll)
 
@@ -427,6 +432,7 @@ class ArmCanvas(FigureCanvas):
         tip_face_arrays = [tip_verts[face] for face in tip_faces]
         tip_color = self.collision_color if 'tip' in coll else self.default_colors['joint_tip']
         tip_coll = Poly3DCollection(tip_face_arrays, facecolors=tip_color, edgecolors='#333', linewidths=0.3)
+        tip_coll.set_clip_on(False)
         self.ax.add_collection3d(tip_coll)
         self.meshes['joints'].append(tip_coll)
 
@@ -448,7 +454,8 @@ class ArmCanvas(FigureCanvas):
             self._traj_line.remove()
         if self.trajectory_points:
             pts = np.array(self.trajectory_points)
-            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], 'r-', linewidth=1, alpha=0.7)[0]
+            self._traj_line = self.ax.plot(pts[:,0], pts[:,1], pts[:,2], color='#f1c40f', linewidth=1, alpha=0.8, zorder=4)[0]
+            self._traj_line.set_clip_on(False)
         else:
             self._traj_line = None
         self.draw_idle()
@@ -597,6 +604,7 @@ class ArmCanvas(FigureCanvas):
         base_center = np.array([0.0, 0.0, base_height/2])
         base_verts, base_faces = cuboid_mesh(base_center, base_size)
         base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=self.default_colors['base'], edgecolors='#444', linewidths=0.5)
+        base_coll.set_clip_on(False)
         self.ax.add_collection3d(base_coll)
         self.meshes['base'] = base_coll
 
@@ -615,6 +623,7 @@ class ArmCanvas(FigureCanvas):
             else:
                 color = self.default_colors['lower']
             coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#444', linewidths=0.5)
+            coll.set_clip_on(False)
             self.ax.add_collection3d(coll)
             self.meshes['custom_links'].append(coll)
 
@@ -631,6 +640,7 @@ class ArmCanvas(FigureCanvas):
             j_verts, j_faces = sphere_mesh(pt, radius, resolution=6)
             face_arrays = [j_verts[face] for face in j_faces]
             coll = Poly3DCollection(face_arrays, facecolors=self.default_colors[color_key], edgecolors='#333', linewidths=0.3)
+            coll.set_clip_on(False)
             self.ax.add_collection3d(coll)
             self.meshes['joints'].append(coll)
 
@@ -647,6 +657,7 @@ class ArmCanvas(FigureCanvas):
         center_arr = np.array(center)
         verts, faces = cuboid_mesh(center_arr, size)
         coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#333', linewidths=0.5, alpha=0.7)
+        coll.set_clip_on(False)
         self.ax.add_collection3d(coll)
         self.obstacles.append({'center': center_arr, 'size': size})
         self.obstacle_meshes.append(coll)
