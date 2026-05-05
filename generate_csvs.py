@@ -26,6 +26,11 @@ def main():
     out_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "trajectories"
     out_dir.mkdir(exist_ok=True)
     
+    # 2-DOF Planar
+    generate_csv_for_chain("2-DOF Planar", PRESETS["2-DOF Planar"]["factory"](), [
+        [0, 0], [45, -45], [-30, 60]
+    ], out_dir)
+    
     # 3-DOF
     generate_csv_for_chain("Standard 3-DOF", preset_3dof_arm(), [
         [0, 30, -30], [45, 45, -45], [-45, 60, -90]
