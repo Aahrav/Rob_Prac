@@ -467,7 +467,6 @@ class KinematicChain:
                     down_torque = np.cross(down_r, down_weight)
                     torques[i] += np.dot(down_torque, z_axis)
             else:
-<<<<<<< HEAD
                 # For prismatic joints, we care about force along the Z axis
                 torques[i] = np.dot(weight_force, z_axis)
                 for j in range(i + 1, n):
@@ -475,8 +474,6 @@ class KinematicChain:
                     torques[i] += np.dot(down_weight, z_axis)
                     
         return torques
-=======
->>>>>>> temp
 
     def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
         """

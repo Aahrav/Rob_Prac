@@ -50,6 +50,7 @@ class ArmCanvas(FigureCanvas):
         # Mesh collections (cleared and rebuilt each frame)
         self.meshes = {
             'base': None,
+            'base_plate': None, # new mounting plate mesh
             'upper': None,
             'lower': None,
             'gripper': None,
@@ -429,40 +430,21 @@ class ArmCanvas(FigureCanvas):
         base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w/2, resolution=24)
         base_color = self.collision_color if 'base' in coll else self.default_colors['base']
         self._update_mesh('base', base_verts, base_faces, base_color)
-        base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=base_color, edgecolors='#444', linewidths=0.5)
-        base_coll.set_clip_on(False)
-        self.ax.add_collection3d(base_coll)
-        self.meshes['base'] = base_coll
 
-        # Draw upper arm cylinder (shoulder -> elbow)
-        upper_radius = 0.025
+        # Draw / Update upper arm cylinder (shoulder -> elbow)
         upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, link_r_upper, resolution=20)
         upper_color = self.collision_color if 'upper' in coll else self.default_colors['upper']
         self._update_mesh('upper', upper_verts, upper_faces, upper_color)
-        upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
-        upper_coll.set_clip_on(False)
-        self.ax.add_collection3d(upper_coll)
-        self.meshes['upper'] = upper_coll
-        upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(upper_coll)
-        self.meshes['upper'] = upper_coll
 
         # Draw / Update lower arm cylinder (elbow -> wrist)
         lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, link_r_lower, resolution=16)
         lower_color = self.collision_color if 'lower' in coll else self.default_colors['lower']
         self._update_mesh('lower', lower_verts, lower_faces, lower_color)
-        lower_coll = Poly3DCollection([lower_verts[face] for face in lower_faces], facecolors=lower_color, edgecolors='#444', linewidths=0.5)
-        lower_coll.set_clip_on(False)
-        self.ax.add_collection3d(lower_coll)
-        self.meshes['lower'] = lower_coll
 
         # Draw / Update gripper cylinder (wrist -> tip)
         gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, link_r_gripper, resolution=12)
         gripper_color = self.collision_color if 'gripper' in coll else self.default_colors['gripper']
         self._update_mesh('gripper', gripper_verts, gripper_faces, gripper_color)
-        gripper_coll = Poly3DCollection([gripper_verts[face] for face in gripper_faces], facecolors=gripper_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(gripper_coll)
-        self.meshes['gripper'] = gripper_coll
 
         # Draw / Update joint spheres
         joint_data = [
@@ -475,7 +457,7 @@ class ArmCanvas(FigureCanvas):
         # Ensure joints list has enough collections
         while len(self.meshes['joints']) < len(joint_data):
             c = Poly3DCollection([], alpha=1.0)
-            joint_coll.set_clip_on(False)
+            c.set_clip_on(False)
             self.ax.add_collection3d(c)
             self.meshes['joints'].append(c)
         while len(self.meshes['joints']) > len(joint_data):
@@ -488,8 +470,7 @@ class ArmCanvas(FigureCanvas):
             self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
             self.meshes['joints'][i].set_facecolor(j_color)
             self.meshes['joints'][i].set_edgecolor('#333')
-            tip_coll.set_clip_on(False)
-        self.meshes['joints'][i].set_linewidth(0.3)
+            self.meshes['joints'][i].set_linewidth(0.3)
             self.meshes['joints'][i].set_visible(True)
 
         # Adjust axis limits to fit arm and ground
@@ -501,6 +482,7 @@ class ArmCanvas(FigureCanvas):
         poly_verts = [verts[f] for f in faces]
         if self.meshes[key] is None:
             coll = Poly3DCollection(poly_verts, facecolors=color, edgecolors='#444', linewidths=0.5)
+            coll.set_clip_on(False)
             self.ax.add_collection3d(coll)
             self.meshes[key] = coll
         else:
@@ -564,18 +546,19 @@ class ArmCanvas(FigureCanvas):
 
     def update_ground(self, radius: float):
         """Rebuild ground plane, grid, and workspace circle to match new radius with Blender aesthetics."""
-        # Remove existing ground elements
+        # Remove existing ground elements safely
         for artist in self._ground_elements:
-            artist.remove()
+            try:
+                artist.remove()
+            except (ValueError, RuntimeError):
+                pass # Already removed or never added
         self._ground_elements.clear()
         
         self.workspace_radius = radius
         # Draw a grid large enough to cover widescreen but small enough to avoid projection issues
         size = radius * 8.0 
 
-        # Grid lines coordinates
-        segments = []
-        # Ground plane
+        # ── Ground plane (subtle base) ──
         corners = np.array([
             [-radius, -radius, 0],
             [ radius, -radius, 0],
@@ -585,28 +568,41 @@ class ArmCanvas(FigureCanvas):
         faces = [[0,1,2],[0,2,3]]
         ground = Poly3DCollection([corners[face] for face in faces],
                                    facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
+        ground.set_clip_on(False)
         self.ax.add_collection3d(ground)
+        self.meshes['ground'] = ground
         self._ground_elements.append(ground)
-        # Dynamic grid step
+
+        # ── Infinite Grid ──
+        segments = []
         if radius <= 0.35:
             step = 0.05
         elif radius <= 0.7:
             step = 0.1
         else:
-        step = 0.25
+            step = 0.25
+            
         grid_color = '#3a3a3a'
-        # Build grid segments
         for x in np.arange(-size, size + step, step):
             if abs(x) > 1e-5:
                 segments.append([[x, -size, 0], [x, size, 0]])
         for y in np.arange(-size, size + step, step):
             if abs(y) > 1e-5:
                 segments.append([[-size, y, 0], [size, y, 0]])
-        # Add as a single collection (MUCH faster)
+        
         grid_coll = Line3DCollection(segments, colors=grid_color, linewidths=0.5, alpha=0.4)
-        grid_coll.set_clip_on(False) # Prevent clipping to the xlim/ylim box
+        grid_coll.set_clip_on(False)
         self.ax.add_collection3d(grid_coll)
         self._ground_elements.append(grid_coll)
+
+        # ── Origin Axes (X=Red, Y=Green, Z=Blue) ──
+        z_max = self.ax.get_zlim()[1]
+        axis_len = radius * 2.0
+        
+        line_x = self.ax.plot([-axis_len, axis_len], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5, zorder=5)[0]
+        line_x.set_clip_on(False)
+        self._ground_elements.append(line_x)
+        
         line_y = self.ax.plot([0, 0], [-axis_len, axis_len], [0, 0], color='#2ecc71', linewidth=1.5, zorder=5)[0]
         line_y.set_clip_on(False)
         self._ground_elements.append(line_y)
@@ -615,11 +611,12 @@ class ArmCanvas(FigureCanvas):
         line_z.set_clip_on(False)
         self._ground_elements.append(line_z)
 
-        # Labels for the origin axes
+        # Labels
         txt_x = self.ax.text(axis_len * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
         txt_y = self.ax.text(0, axis_len * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
         txt_z = self.ax.text(0, 0, z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
         self._ground_elements.extend([txt_x, txt_y, txt_z])
+
         # Workspace boundary circle
         theta = np.linspace(0, 2*np.pi, 64)
         x_circle = radius * np.cos(theta)
@@ -650,9 +647,9 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_zlim([0.0, new_z])
         
         # Update ground and grid to new radius
-        self.update_ground(xy_max)
+        self.update_ground(new_radius)
         # Set camera distance (perspective) to a comfortable multiple of scene size
-        self.ax.dist = max(xy_max * 2, z_max) * 2.2
+        self.ax.dist = max(new_radius * 2, new_z) * 2.2
         
         # Apply responsive limits and box aspect to fill widget
         self._update_aspect_ratio()
@@ -709,6 +706,7 @@ class ArmCanvas(FigureCanvas):
             if 'base_plate' not in self.meshes or self.meshes.get('base_plate') is None:
                 coll = Poly3DCollection([p_verts[f] for f in p_faces],
                                         facecolors='#444', edgecolors='#555', linewidths=0.3)
+                coll.set_clip_on(False)
                 self.ax.add_collection3d(coll)
                 self.meshes['base_plate'] = coll
             else:
@@ -724,6 +722,7 @@ class ArmCanvas(FigureCanvas):
         # Sync custom_links and joints list
         while len(self.meshes['custom_links']) < num_links:
             c = Poly3DCollection([], alpha=1.0)
+            c.set_clip_on(False)
             self.ax.add_collection3d(c)
             self.meshes['custom_links'].append(c)
         while len(self.meshes['custom_links']) > num_links:
@@ -732,6 +731,7 @@ class ArmCanvas(FigureCanvas):
 
         while len(self.meshes['joints']) < num_links:
             c = Poly3DCollection([], alpha=1.0)
+            c.set_clip_on(False)
             self.ax.add_collection3d(c)
             self.meshes['joints'].append(c)
         while len(self.meshes['joints']) > num_links:
