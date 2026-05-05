@@ -650,9 +650,18 @@ class MainWindow(QMainWindow):
 
         self.right_layout.addWidget(toolbar)
 
-        # ── Viewport Splitter (Vertical) ──────────────────────────────────
-        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.right_splitter.setStyleSheet("QSplitter::handle { background-color: #1a1a1a; height: 2px; }")
+        # ── Viewport Splitter (Horizontal: 3D canvas left, EE map right) ──
+        self.right_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.right_splitter.setHandleWidth(3)
+        self.right_splitter.setStyleSheet("""
+            QSplitter::handle:horizontal {
+                background-color: #1a1a1a;
+                width: 3px;
+            }
+            QSplitter::handle:horizontal:hover {
+                background-color: #3498db;
+            }
+        """)
 
         # ── 3D Canvas ─────────────────────────────────────────────────────
         from frontend.panels.arm_canvas import ArmCanvas
@@ -663,24 +672,24 @@ class MainWindow(QMainWindow):
         self.arm_canvas.setMinimumSize(400, 300)  # Relaxed minimums
         self.right_splitter.addWidget(self.arm_canvas)
 
-        # ── 2D Map ────────────────────────────────────────────────────────
+        # ── 2D Map (vertical side panel on the right) ─────────────────────
         self.ee_map = EEMapPanel()
-        self.ee_map.setMinimumHeight(200)  # Relaxed minimums
+        self.ee_map.setMinimumWidth(250)  # Vertical side panel width
         self.right_splitter.addWidget(self.ee_map)
 
-        # ── Replay Control Bar (between canvas and map in right_layout) ───
+        # Set initial proportions (70% canvas, 30% map)
+        self.right_splitter.setStretchFactor(0, 7)
+        self.right_splitter.setStretchFactor(1, 3)
+        self.right_splitter.setSizes([740, 320])
+
+        self.right_layout.addWidget(self.right_splitter, stretch=1)
+
+        # ── Replay Control Bar (at the bottom, below the splitter) ────────
         from frontend.panels.replay_bar import ReplayControlBar
         self.replay_bar = ReplayControlBar(self._replay_controller)
         self.replay_bar.record_toggled.connect(self._on_record_toggled)
         self.replay_bar.export_requested.connect(self._on_export_requested)
         self.right_layout.addWidget(self.replay_bar)
-        
-        # Set initial proportions (e.g. 60% 3D, 40% 2D)
-        self.right_splitter.setStretchFactor(0, 3)
-        self.right_splitter.setStretchFactor(1, 2)
-        self.right_splitter.setSizes([500, 350])
-
-        self.right_layout.addWidget(self.right_splitter, stretch=1)
         
         # Connect map click to trajectory panel
         self.ee_map.target_selected.connect(
