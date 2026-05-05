@@ -16,19 +16,15 @@ class ArmCanvas(FigureCanvas):
     """Matplotlib 3D canvas for rendering the robotic arm with 3D meshes and collision detection."""
 
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(9, 7), facecolor='#2d2d2d', dpi=100)
+        self.fig = Figure(figsize=(9, 7), facecolor='#282828', dpi=100)
         super().__init__(self.fig)
         self.setParent(parent)
 
         self.ax = self.fig.add_subplot(111, projection='3d')
-        self.ax.set_facecolor('#2d2d2d')
-        self.ax.grid(True, color='#444')
-
-        # Styling
-        self.ax.xaxis.label.set_color('#aaa')
-        self.ax.yaxis.label.set_color('#aaa')
-        self.ax.zaxis.label.set_color('#aaa')
-        self.ax.tick_params(colors='#aaa')
+        self.ax.set_facecolor('#282828')
+        
+        # Turn off default matplotlib bounding box to mimic Blender's infinite void
+        self.ax.set_axis_off()
 
         self.config = ArmConfig()
 
@@ -121,6 +117,10 @@ class ArmCanvas(FigureCanvas):
         self.draw()
 
     def _setup_axes(self):
+        # Re-apply styling after cla()
+        self.ax.set_facecolor('#282828')
+        self.ax.set_axis_off()
+
         # Workspace bounds (meters)
         self.workspace_radius = 1.2  # XY range: ±1.2m
         self.workspace_z_max = 1.44   # Z max: 1.44m (aspect ~0.6)
@@ -129,10 +129,6 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_ylim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_zlim([0, self.workspace_z_max])
-
-        self.ax.set_xlabel('X (m)')
-        self.ax.set_ylabel('Y (m)')
-        self.ax.set_zlabel('Z (m)')
 
         # Lock aspect ratio (prevents distortion)
         self.ax.set_box_aspect((1, 1, 0.6))
@@ -153,31 +149,37 @@ class ArmCanvas(FigureCanvas):
         # Enable interactive navigation (mouse rotate, zoom, pan) — default
 
     def _add_static_ground(self):
-        """Create a ground plane with grid and workspace boundary (static, added once)."""
+        """Create an infinite floor grid with Blender-colored origin axes."""
         size = self.workspace_radius  # ground spans full XY workspace
 
-        # Ground plane (very transparent)
-        corners = np.array([
-            [-size, -size, 0],
-            [ size, -size, 0],
-            [ size,  size, 0],
-            [-size,  size, 0],
-        ])
-        faces = [[0, 1, 2], [0, 2, 3]]
-        ground = Poly3DCollection([corners[face] for face in faces],
-                                   facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
-        self.ax.add_collection3d(ground)
-        self.meshes['ground'] = ground
-        self._ground_elements.append(ground)
-
-        # Grid lines every 0.25m (subtle)
+        # Grid lines every 0.25m
         step = 0.25
+        grid_color = '#3a3a3a'
         for x in np.arange(-size, size + step, step):
-            line = self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
+            if abs(x) > 1e-5:  # skip origin for axis lines
+                line = self.ax.plot([x, x], [-size, size], [0, 0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
         for y in np.arange(-size, size + step, step):
-            line = self.ax.plot([-size, size], [y, y], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
-            self._ground_elements.append(line)
+            if abs(y) > 1e-5:
+                line = self.ax.plot([-size, size], [y, y], [0, 0], color=grid_color, linewidth=0.8)[0]
+                self._ground_elements.append(line)
+
+        # Origin Axes (Blender colors: X=Red, Y=Green, Z=Blue)
+        # X-axis (Red)
+        line_x = self.ax.plot([-size, size], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
+        self._ground_elements.append(line_x)
+        # Y-axis (Green)
+        line_y = self.ax.plot([0, 0], [-size, size], [0, 0], color='#2ecc71', linewidth=1.5)[0]
+        self._ground_elements.append(line_y)
+        # Z-axis (Blue)
+        line_z = self.ax.plot([0, 0], [0, 0], [0, self.workspace_z_max], color='#3498db', linewidth=1.5)[0]
+        self._ground_elements.append(line_z)
+
+        # Labels for the origin axes
+        txt_x = self.ax.text(size * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
+        txt_y = self.ax.text(0, size * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
+        txt_z = self.ax.text(0, 0, self.workspace_z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
+        self._ground_elements.extend([txt_x, txt_y, txt_z])
 
         # Workspace boundary: faint circle at ground (max XY reach 0.6m)
         max_reach = 0.6

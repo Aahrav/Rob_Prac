@@ -18,11 +18,12 @@ Signals:
 """
 
 import os
+import serial.tools.list_ports
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QFileDialog, QSizePolicy,
+    QFrame, QFileDialog, QSizePolicy, QComboBox
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from backend.config import DEFAULT_BAUD_RATE
 
 
@@ -51,18 +52,6 @@ PILL_INACTIVE = """
         font-weight: 500;
     }
     QPushButton:hover { background-color: #2a2a2a; color: #bfc7d2; }
-"""
-
-PILL_DISABLED = """
-    QPushButton {
-        background-color: #181818;
-        color: #3f4850;
-        border: 1px solid #1e1e1e;
-        border-radius: 4px;
-        padding: 6px 10px;
-        font-size: 10px;
-        font-weight: 500;
-    }
 """
 
 CONNECT_STYLE = """
@@ -111,6 +100,22 @@ BROWSE_STYLE = """
         min-height: 24px;
     }
     QPushButton:hover { background-color: #2a2a2a; color: #e5e2e1; border-color: #454548; }
+"""
+
+COMBO_STYLE = """
+    QComboBox {
+        background-color: #0e0e0e;
+        color: #bfc7d2;
+        border: 1px solid #353535;
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-family: 'Consolas', monospace;
+        min-height: 24px;
+    }
+    QComboBox::drop-down { border: none; }
+    QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid #89929b; width: 0; height: 0; margin-right: 8px; }
+    QComboBox QAbstractItemView { background-color: #202020; color: #bfc7d2; selection-background-color: #3498db; outline: none; border: 1px solid #353535; }
 """
 
 FILE_LABEL_STYLE = (
@@ -162,9 +167,8 @@ class ConnectionPanel(QWidget):
         pill_row.addWidget(self.btn_replay)
 
         self.btn_serial = QPushButton("USB Serial")
-        self.btn_serial.setStyleSheet(PILL_DISABLED)
-        self.btn_serial.setEnabled(False)
-        self.btn_serial.setToolTip("Coming soon — hardware not connected")
+        self.btn_serial.setStyleSheet(PILL_INACTIVE)
+        self.btn_serial.clicked.connect(lambda: self._switch_mode("Serial"))
         pill_row.addWidget(self.btn_serial)
 
         layout.addLayout(pill_row)
@@ -202,6 +206,38 @@ class ConnectionPanel(QWidget):
         self._replay_row.setVisible(False)
         layout.addWidget(self._replay_row)
 
+        # ── Serial Port row (hidden unless Serial mode active) ────────────
+        self._serial_row = QFrame()
+        self._serial_row.setStyleSheet(
+            "QFrame { background-color: #0e0e0e; border-radius: 4px; }"
+        )
+        serial_inner = QVBoxLayout(self._serial_row)
+        serial_inner.setContentsMargins(8, 6, 8, 6)
+        serial_inner.setSpacing(4)
+
+        lbl_port = QLabel("USB PORT")
+        lbl_port.setStyleSheet(SECTION_LABEL)
+        serial_inner.addWidget(lbl_port)
+
+        port_row = QHBoxLayout()
+        port_row.setSpacing(6)
+
+        self.port_combo = QComboBox()
+        self.port_combo.setStyleSheet(COMBO_STYLE)
+        self.port_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        port_row.addWidget(self.port_combo, 1)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setStyleSheet(BROWSE_STYLE)
+        refresh_btn.clicked.connect(self.refresh_ports)
+        port_row.addWidget(refresh_btn)
+
+        serial_inner.addLayout(port_row)
+        self._serial_row.setVisible(False)
+        layout.addWidget(self._serial_row)
+
         # ── Connect button ────────────────────────────────────────────────
         self.connect_btn = QPushButton("● Connect")
         self.connect_btn.setStyleSheet(CONNECT_STYLE)
@@ -219,6 +255,9 @@ class ConnectionPanel(QWidget):
         # Compat shim — main_window reads .mode_combo.currentText()
         self.mode_combo = _CompatModeProxy(self)
 
+        # Initial port scan
+        self.refresh_ports()
+
     # ── Public helpers ────────────────────────────────────────────────────────
 
     def set_connected(self, connected: bool):
@@ -228,11 +267,13 @@ class ConnectionPanel(QWidget):
             self.connect_btn.setStyleSheet(DISCONNECT_STYLE)
             self.btn_simulate.setEnabled(False)
             self.btn_replay.setEnabled(False)
+            self.btn_serial.setEnabled(False)
         else:
             self.connect_btn.setText("● Connect")
             self.connect_btn.setStyleSheet(CONNECT_STYLE)
             self.btn_simulate.setEnabled(True)
             self.btn_replay.setEnabled(True)
+            self.btn_serial.setEnabled(True)
 
     def set_status(self, message: str):
         msg_lower = message.lower()
@@ -248,8 +289,18 @@ class ConnectionPanel(QWidget):
         )
 
     def refresh_ports(self):
-        """No-op kept for API compatibility — port scanning not needed for MVP."""
-        pass
+        """Scan for available serial ports."""
+        self.port_combo.clear()
+        ports = serial.tools.list_ports.comports()
+        if not ports:
+            self.port_combo.addItem("No ports found")
+            self.port_combo.setEnabled(False)
+        else:
+            self.port_combo.setEnabled(True)
+            for p in ports:
+                # Include friendly name if available
+                desc = f"{p.device} ({p.description})" if p.description != p.device else p.device
+                self.port_combo.addItem(desc, p.device)
 
     # ── Private slots ─────────────────────────────────────────────────────────
 
@@ -265,12 +316,17 @@ class ConnectionPanel(QWidget):
         self.btn_replay.setStyleSheet(
             PILL_ACTIVE if mode == "Replay" else PILL_INACTIVE
         )
+        self.btn_serial.setStyleSheet(
+            PILL_ACTIVE if mode == "Serial" else PILL_INACTIVE
+        )
 
-        # Show/hide replay file picker
+        # Show/hide relevant options
         self._replay_row.setVisible(mode == "Replay")
+        self._serial_row.setVisible(mode == "Serial")
 
         self.btn_simulate.clearFocus()
         self.btn_replay.clearFocus()
+        self.btn_serial.clearFocus()
         self.mode_changed.emit(mode.lower())
 
     def _browse_replay_file(self):
@@ -296,12 +352,32 @@ class ConnectionPanel(QWidget):
 
         elif self._current_mode == "Replay":
             if self._replay_path:
-                # Prefix so MainWindow distinguishes replay path from future COM port names.
                 self.connect_requested.emit(f"REPLAY:{self._replay_path}", 0)
             else:
                 self.set_status("No replay file selected — click Browse…")
+        
+        elif self._current_mode == "Serial":
+            port = self.port_combo.currentData()
+            if port and port != "No ports found":
+                self.connect_requested.emit(port, DEFAULT_BAUD_RATE)
+            else:
+                self.set_status("No valid serial port selected")
 
-        # "Serial" mode button is disabled; this branch is unreachable
+
+# ── Compat shim ───────────────────────────────────────────────────────────────
+
+class _CompatModeProxy:
+    """Allows main_window.py to call connection_panel.mode_combo.currentText()
+    without any changes to its wiring code."""
+
+    def __init__(self, panel: ConnectionPanel):
+        self._panel = panel
+
+    def currentText(self) -> str:
+        return self._panel._current_mode
+
+    def clearFocus(self):
+        pass
 
 
 # ── Compat shim ───────────────────────────────────────────────────────────────
