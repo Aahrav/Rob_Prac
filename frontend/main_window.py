@@ -1158,10 +1158,18 @@ class MainWindow(QMainWindow):
             base_h = cfg.base_height
         else:
             chain = self.chain_panel.chain
-            max_xy = sum(joint.a for joint in chain.joints)
+            # Sum both 'a' and 'd' for a safe maximum reach bound in custom DH
+            max_xy = sum(abs(joint.a) + abs(joint.d) for joint in chain.joints)
             max_z = chain.base_height + max_xy
             base_h = chain.base_height
+            
+        # Ensure max_xy is at least 0.1 to avoid map scaling errors
+        max_xy = max(max_xy, 0.1)
+
         self.arm_canvas.frame_to_fit_robot(max_xy, max_z, base_h)
+        self.arm_canvas.update_workspace_boundary(max_xy)
+        if hasattr(self, 'ee_map'):
+            self.ee_map.update_workspace(max_xy)
 
     def _on_chain_updated(self, chain):
         if self.mode == 'custom':

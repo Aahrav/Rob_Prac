@@ -227,7 +227,19 @@ class TrajectoryPanel(QWidget):
         self.btn_stop.setEnabled(False)
         btn_row.addWidget(self.btn_stop)
 
+        self.btn_load_csv = QPushButton("📂 Load CSV")
+        self.btn_load_csv.setStyleSheet("background-color: #9b59b6; color: white; border-radius: 4px; padding: 4px 8px; font-weight: bold;")
+        self.btn_load_csv.setToolTip("Load a CSV of targets to simulate automatically")
+        self.btn_load_csv.clicked.connect(self._load_csv_clicked)
+        btn_row.addWidget(self.btn_load_csv)
+
         layout.addLayout(btn_row)
+
+        self.target_queue = []
+        from PyQt6.QtCore import QTimer
+        self.pause_timer = QTimer()
+        self.pause_timer.setSingleShot(True)
+        self.pause_timer.timeout.connect(self._process_next_target)
 
         # ── Status chip ───────────────────────────────────────────────────
         self.lbl_status = QLabel("Idle")
@@ -253,6 +265,66 @@ class TrajectoryPanel(QWidget):
 
     def _update_current_pos(self):
         self.current_pos = [self.spin_x.value(), self.spin_y.value(), self.spin_z.value()]
+
+    def _load_csv_clicked(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import csv
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Target CSV",
+            "",
+            "CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                targets = []
+                for row in reader:
+                    x = float(row.get('x', row.get('X', 0.0)))
+                    y = float(row.get('y', row.get('Y', 0.0)))
+                    z = float(row.get('z', row.get('Z', 0.0)))
+                    targets.append([x, y, z])
+
+            if not targets:
+                raise ValueError("CSV is empty or missing 'x', 'y', 'z' columns.")
+
+            self.target_queue = targets
+            log.info("Loaded CSV with %d targets", len(targets))
+            self.lbl_status.setText(f"⬤  Loaded {len(targets)} targets")
+            self.lbl_status.setStyleSheet("color: #9b59b6; font-size: 11px; padding: 4px 0;")
+            
+            # Start the queue
+            self._process_next_target()
+
+        except Exception as exc:
+            log.error("Failed to load CSV: %s", exc)
+            QMessageBox.critical(self, "Load Error", f"Failed to load CSV:\n{exc}")
+
+    def _process_next_target(self):
+        if not self.target_queue:
+            self.lbl_status.setText("⬤  Simulation Complete")
+            self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
+            self.btn_load_csv.setEnabled(True)
+            return
+
+        self.btn_load_csv.setEnabled(False)
+        target = self.target_queue.pop(0)
+        
+        # Update spinboxes
+        self.spin_x.setValue(target[0])
+        self.spin_y.setValue(target[1])
+        self.spin_z.setValue(target[2])
+        self._update_current_pos()
+        
+        self.target_pos = self.current_pos[:]
+        log.info("Processing next queue target: (%.4f, %.4f, %.4f)", *self.target_pos)
+        self.lbl_status.setText(f"⬤  Animating to queue target ({len(self.target_queue)} remaining)")
+        self.lbl_status.setStyleSheet("color: #f39c12; font-size: 11px; padding: 4px 0;")
+        
+        self._animate_clicked()
 
     def _set_target_clicked(self):
         self.target_pos = self.current_pos[:]
@@ -429,6 +501,9 @@ class TrajectoryPanel(QWidget):
             )
             self.lbl_status.setText("⬤  Target reached")
             self.lbl_status.setStyleSheet("color: #2ecc71; font-size: 11px; padding: 4px 0;")
+            
+            if self.target_queue:
+                self.pause_timer.start(1000)
             self._var_joint_indices = None
             self.animation_start_angles = []
 

@@ -306,7 +306,7 @@ class KinematicChain:
             else:
                 contribution = abs(j.a) + abs(j.d)
             max_reach += contribution
-            print(f"DEBUG: Joint {i+1} ({j.name}) reach contribution: {contribution:.4f}")
+            log.debug("Joint %d (%s) reach contribution: %.4f", i+1, j.name, contribution)
         return max_reach
 
     def add_joint(self, joint: DHJoint):
@@ -350,19 +350,16 @@ class KinematicChain:
         transforms = [T_base]
 
         for i, joint in enumerate(self.joints):
-            # Joint displacement q (0.0 if not provided)
-            q = 0.0
-            if joint_angles is not None and i < len(joint_angles):
-                q = joint_angles[i]
+            # If joint_angles is provided, it contains the absolute values for ALL joints
+            has_q = joint_angles is not None and i < len(joint_angles)
+            q = joint_angles[i] if has_q else 0.0
             
             if joint.type == 'revolute':
-                # theta_final = theta_base + q_revolute
-                theta = np.radians(q + joint.theta)
+                theta = np.radians(q) if has_q else np.radians(joint.theta)
                 d = joint.d
             elif joint.type == 'prismatic':
-                # d_final = d_base + q_prismatic
                 theta = np.radians(joint.theta)
-                d = q + joint.d
+                d = q if has_q else joint.d
             else:
                 # Fixed: T is constant from DH params
                 theta = np.radians(joint.theta)
@@ -475,7 +472,7 @@ class KinematicChain:
                     
         return torques
 
-    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
+    def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 100, tol: float = 0.005) -> Optional[List[float]]:
         """
         Numerical IK using damped least-squares (Levenberg-Marquardt) Jacobian.
         Solves for joint angles (in degrees for revolute, meters for prismatic) that place
@@ -527,11 +524,11 @@ class KinematicChain:
             best_angles = angles[:]
             best_error = float('inf')
 
-            # Damping factor — increased for stability in singular configurations
+            # Damping factor — lowered to allow reasonable step sizes since J is in m/deg
             delta_deg = 0.01    # finite-difference step for Jacobian (degrees / metres)
-            damping = 0.1
-            max_step_deg = 5.0
-            max_step_m = 0.01
+            damping = 0.01      # Much smaller to balance JJT magnitude (approx 0.0003)
+            max_step_deg = 15.0 # allow faster rotation per iteration
+            max_step_m = 0.05   # allow faster translation per iteration
 
             log.debug(
                 "IK run%s | start=%s",
@@ -571,9 +568,19 @@ class KinematicChain:
                 J = np.zeros((3, len(var_indices)))
                 for col, idx in enumerate(var_indices):
                     perturbed = angles[:]
-                    perturbed[idx] += delta_deg
-                    pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
-                    J[:, col] = (pos_plus - ee_pos) / delta_deg
+                    if self.joints[idx].type == 'revolute':
+                        # 1 degree perturbation
+                        step_val = 1.0 
+                        perturbed[idx] += step_val
+                        pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
+                        # scale J column to dx / d_radians
+                        J[:, col] = (pos_plus - ee_pos) / np.radians(step_val)
+                    else:
+                        # 1 cm perturbation
+                        step_val = 0.01
+                        perturbed[idx] += step_val
+                        pos_plus = self.forward_kinematics(perturbed)[-1][:3, 3]
+                        J[:, col] = (pos_plus - ee_pos) / step_val
 
                 # Damped least-squares: delta_q = J^T (J J^T + lambda^2 I)^{-1} error
                 JJT = J @ J.T
@@ -587,10 +594,12 @@ class KinematicChain:
                 for col, idx in enumerate(var_indices):
                     step = delta_vars[col]
                     if self.joints[idx].type == 'revolute':
-                        step = np.clip(step, -max_step_deg, max_step_deg)
+                        step_deg = np.degrees(step)
+                        step_deg = np.clip(step_deg, -max_step_deg, max_step_deg)
+                        angles[idx] += step_deg
                     else:
                         step = np.clip(step, -max_step_m, max_step_m)
-                    angles[idx] += step
+                        angles[idx] += step
 
                     # ── Enforce joint limits (prevents workspace escape) ──
                     j = self.joints[idx]
@@ -645,9 +654,9 @@ class KinematicChain:
             log.info("IK solved on initial guess | final_err=%.5f", best_overall_error)
             return best_overall_angles
 
-        # Random restarts
+        # Random restarts (reduced from 30 to 5 to prevent UI hanging)
         rng = np.random.default_rng(42)
-        for restart_idx in range(30):
+        for restart_idx in range(5):
             rand_start = []
             for j in self.joints:
                 if j.type == 'revolute':
