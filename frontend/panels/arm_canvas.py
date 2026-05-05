@@ -101,6 +101,7 @@ class ArmCanvas(FigureCanvas):
         # Reset all mesh references to avoid stale artists after clear
         self.meshes = {
             'base': None,
+            'base_plate': None, # new mounting plate mesh
             'upper': None,
             'lower': None,
             'gripper': None,
@@ -121,11 +122,10 @@ class ArmCanvas(FigureCanvas):
         self.draw()
 
     def _setup_axes(self):
-        # Workspace bounds (meters)
-        self.workspace_radius = 1.2  # XY range: ±1.2m
-        self.workspace_z_max = 1.44   # Z max: 1.44m (aspect ~0.6)
-
-        # Set fixed limits (shoulder at origin, works within these bounds)
+        # Initial tight bounds (will be updated by presets)
+        self.workspace_radius = 0.5
+        self.workspace_z_max = 0.6
+        
         self.ax.set_xlim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_ylim([-self.workspace_radius, self.workspace_radius])
         self.ax.set_zlim([0, self.workspace_z_max])
@@ -170,8 +170,14 @@ class ArmCanvas(FigureCanvas):
         self.meshes['ground'] = ground
         self._ground_elements.append(ground)
 
-        # Grid lines every 0.25m (subtle)
-        step = 0.25
+        # Dynamic grid step based on size
+        if size <= 0.35:
+            step = 0.05
+        elif size <= 0.7:
+            step = 0.1
+        else:
+            step = 0.25
+
         for x in np.arange(-size, size + step, step):
             line = self.ax.plot([x, x], [-size, size], [0, 0], color='#555', linewidth=0.3, alpha=0.2)[0]
             self._ground_elements.append(line)
@@ -268,14 +274,9 @@ class ArmCanvas(FigureCanvas):
         # Hide idle overlay — data has arrived
         self.set_idle_message(False)
 
-        # Clear previous arm meshes (ground stays)
-        for key in ['base', 'upper', 'lower', 'gripper']:
-            if self.meshes[key]:
-                self.meshes[key].remove()
-                self.meshes[key] = None
-        for coll in self.meshes['joints']:
-            coll.remove()
-        self.meshes['joints'].clear()
+        # We no longer clear everything every frame.
+        # Instead, we'll update vertices of existing collections.
+        pass
 
         # Ensure positions shape
         if positions.shape[0] >= 5:
@@ -296,70 +297,113 @@ class ArmCanvas(FigureCanvas):
         # Detect collisions
         coll = self._detect_collisions(np.array([base_pt, shoulder_pt, elbow_pt, wrist_pt, tip_pt]))
 
-        # Draw base cuboid (static, centered at base_pt but base_pt is at shoulder level? Actually base cuboid sits on ground up to base_height)
-        base_size = (0.15, 0.15, self.config.base_height)
-        base_center = np.array([0.0, 0.0, self.config.base_height/2])
-        base_verts, base_faces = cuboid_mesh(base_center, base_size)
+        # Proportional scaling based on arm dimensions
+        # We use upper_arm_length as the primary scale reference
+        scale = max(0.1, self.config.upper_arm_length)
+        base_w = max(0.06, scale * 0.4)
+        joint_r_large = max(0.015, scale * 0.1)
+        joint_r_small = joint_r_large * 0.7
+        link_r_upper = joint_r_large * 0.8
+        link_r_lower = joint_r_large * 0.6
+        link_r_gripper = joint_r_large * 0.4
+
+        # Proportional scaling with tapering
+        scale = max(0.1, self.config.upper_arm_length)
+        base_w = max(0.06, scale * 0.4)
+        base_plate_w = base_w * 1.5
+        
+        # Tapered radii (Shoulder > Elbow > Wrist > Tip)
+        r_shoulder = max(0.015, scale * 0.12)
+        r_elbow    = r_shoulder * 0.85
+        r_wrist    = r_shoulder * 0.70
+        r_tip      = r_shoulder * 0.50
+        
+        link_r_upper   = r_shoulder * 0.8
+        link_r_lower   = r_elbow * 0.8
+        link_r_gripper = r_wrist * 0.8
+
+        # Draw / Update base plate (mounting disk)
+        plate_h = 0.01
+        p_start = np.array([0, 0, 0])
+        p_end = np.array([0, 0, plate_h])
+        p_verts, p_faces = cylinder_mesh(p_start, p_end, base_plate_w/2, resolution=24)
+        self._update_mesh('base_plate', p_verts, p_faces, '#444')
+
+        # Draw / Update base cylinder (pedestal)
+        base_h = self.config.base_height
+        b_start = np.array([0, 0, plate_h])
+        b_end = np.array([0, 0, base_h])
+        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w/2, resolution=24)
         base_color = self.collision_color if 'base' in coll else self.default_colors['base']
-        base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=base_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(base_coll)
-        self.meshes['base'] = base_coll
-
-        # Draw upper arm cylinder (shoulder -> elbow)
-        upper_radius = 0.025
-        upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, upper_radius, resolution=12)
+        self._update_mesh('base', base_verts, base_faces, base_color)
+        
+        # Draw / Update upper arm cylinder (shoulder -> elbow)
+        upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, link_r_upper, resolution=20)
         upper_color = self.collision_color if 'upper' in coll else self.default_colors['upper']
-        upper_coll = Poly3DCollection([upper_verts[face] for face in upper_faces], facecolors=upper_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(upper_coll)
-        self.meshes['upper'] = upper_coll
+        self._update_mesh('upper', upper_verts, upper_faces, upper_color)
 
-        # Draw lower arm cylinder (elbow -> wrist)
-        lower_radius = 0.02
-        lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, lower_radius, resolution=10)
+        # Draw / Update lower arm cylinder (elbow -> wrist)
+        lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, link_r_lower, resolution=16)
         lower_color = self.collision_color if 'lower' in coll else self.default_colors['lower']
-        lower_coll = Poly3DCollection([lower_verts[face] for face in lower_faces], facecolors=lower_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(lower_coll)
-        self.meshes['lower'] = lower_coll
+        self._update_mesh('lower', lower_verts, lower_faces, lower_color)
 
-        # Draw gripper cylinder (wrist -> tip)
-        gripper_radius = 0.015
-        gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, gripper_radius, resolution=8)
+        # Draw / Update gripper cylinder (wrist -> tip)
+        gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, link_r_gripper, resolution=12)
         gripper_color = self.collision_color if 'gripper' in coll else self.default_colors['gripper']
-        gripper_coll = Poly3DCollection([gripper_verts[face] for face in gripper_faces], facecolors=gripper_color, edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(gripper_coll)
-        self.meshes['gripper'] = gripper_coll
+        self._update_mesh('gripper', gripper_verts, gripper_faces, gripper_color)
 
-        # Draw joint spheres (shoulder, elbow, wrist)
-        joint_radius = 0.03
-        for idx, (pt, color_key) in enumerate([
-            (shoulder_pt, 'joint_shoulder'),
-            (elbow_pt, 'joint_elbow'),
-            (wrist_pt, 'joint_wrist')
-        ]):
-            j_verts, j_faces = sphere_mesh(pt, joint_radius, resolution=6)
-            face_arrays = [j_verts[face] for face in j_faces]
-            joint_color = self.collision_color if ['shoulder','elbow','wrist'][idx] in coll else self.default_colors[color_key]
-            joint_coll = Poly3DCollection(face_arrays, facecolors=joint_color, edgecolors='#333', linewidths=0.3)
-            self.ax.add_collection3d(joint_coll)
-            self.meshes['joints'].append(joint_coll)
+        # Draw / Update joint spheres
+        joint_data = [
+            (shoulder_pt, r_shoulder, 'shoulder', 'joint_shoulder'),
+            (elbow_pt,    r_elbow,    'elbow',    'joint_elbow'),
+            (wrist_pt,    r_wrist,    'wrist',    'joint_wrist'),
+            (tip_pt,      r_tip,      'tip',      'joint_tip'),
+        ]
+        
+        # Ensure joints list has enough collections
+        while len(self.meshes['joints']) < len(joint_data):
+            c = Poly3DCollection([], alpha=1.0)
+            self.ax.add_collection3d(c)
+            self.meshes['joints'].append(c)
+        while len(self.meshes['joints']) > len(joint_data):
+            c = self.meshes['joints'].pop()
+            c.remove()
 
-        # Draw gripper tip sphere (small)
-        tip_radius = 0.02
-        tip_verts, tip_faces = sphere_mesh(tip_pt, tip_radius, resolution=6)
-        tip_face_arrays = [tip_verts[face] for face in tip_faces]
-        tip_color = self.collision_color if 'tip' in coll else self.default_colors['joint_tip']
-        tip_coll = Poly3DCollection(tip_face_arrays, facecolors=tip_color, edgecolors='#333', linewidths=0.3)
-        self.ax.add_collection3d(tip_coll)
-        self.meshes['joints'].append(tip_coll)
+        for i, (pt, radius, coll_name, color_key) in enumerate(joint_data):
+            j_verts, j_faces = sphere_mesh(pt, radius, resolution=16)
+            j_color = self.collision_color if coll_name in coll else self.default_colors[color_key]
+            self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
+            self.meshes['joints'][i].set_facecolor(j_color)
+            self.meshes['joints'][i].set_edgecolor('#333')
+            self.meshes['joints'][i].set_linewidth(0.3)
+            self.meshes['joints'][i].set_visible(True)
 
         # Adjust axis limits to fit arm and ground
         self._adjust_limits(np.array([base_pt, shoulder_pt, elbow_pt, wrist_pt, tip_pt]))
         self.draw_idle()
 
+    def _update_mesh(self, key: str, verts: np.ndarray, faces: list, color: str):
+        """Update existing mesh collection or create new one."""
+        poly_verts = [verts[f] for f in faces]
+        if self.meshes[key] is None:
+            coll = Poly3DCollection(poly_verts, facecolors=color, edgecolors='#444', linewidths=0.5)
+            self.ax.add_collection3d(coll)
+            self.meshes[key] = coll
+        else:
+            self.meshes[key].set_verts(poly_verts)
+            self.meshes[key].set_facecolor(color)
+            self.meshes[key].set_visible(True)
+
     def _adjust_limits(self, positions):
-        # Don't change limits during animation - fixed workspace keeps aspect ratio stable
-        # Only set once in _setup_axes
-        pass
+        """Automatically adjust limits if robot moves outside current view or is too small."""
+        # Calculate current bounding box of the arm
+        max_h = np.max(np.linalg.norm(positions[:, :2], axis=1))
+        max_v = np.max(positions[:, 2])
+        
+        # If the robot is significantly different from current limits, reframing is needed
+        # We use a 20% margin to avoid jitter
+        if max_h > self.workspace_radius or max_h < self.workspace_radius * 0.5:
+             self.frame_to_fit_robot(max_h, max_v)
 
     def set_trajectory(self, points):
         """Set trajectory trace (simple line)."""
@@ -422,14 +466,20 @@ class ArmCanvas(FigureCanvas):
                                    facecolors='#3a3a3a', edgecolors='#444', linewidths=0.3, alpha=0.12)
         self.ax.add_collection3d(ground)
         self._ground_elements.append(ground)
-        # Grid lines every 0.25m
-        step = 0.25
+        # Dynamic grid step
+        if radius <= 0.35:
+            step = 0.05
+        elif radius <= 0.7:
+            step = 0.1
+        else:
+            step = 0.25
+
         for x in np.arange(-radius, radius + step, step):
             line = self.ax.plot([x, x], [-radius, radius], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
             self._ground_elements.append(line)
         for y in np.arange(-radius, radius + step, step):
             line = self.ax.plot([-radius, radius], [y, y], [0,0], color='#555', linewidth=0.3, alpha=0.2)[0]
-        self._ground_elements.append(line)
+            self._ground_elements.append(line)
         # Workspace boundary circle
         theta = np.linspace(0, 2*np.pi, 64)
         x_circle = radius * np.cos(theta)
@@ -440,27 +490,33 @@ class ArmCanvas(FigureCanvas):
         self._workspace_circle = circle_line
         self.draw_idle()
 
-    def frame_to_fit_robot(self, max_horizontal: float, max_vertical: float, base_height: float = 0.0, padding: float = 0.2):
+    def frame_to_fit_robot(self, max_horizontal: float, max_vertical: float, base_height: float = 0.0, padding: float = 0.25):
         """Adjust camera and axis limits to fit a robot with given maximum reach extents."""
-        if max_horizontal <= 0:
-            max_horizontal = 0.5
-        if max_vertical <= 0:
-            max_vertical = 0.5
-        xy_max = max_horizontal * (1 + padding)
-        z_max = max_vertical * (1 + padding)
+        if max_horizontal < 0.1: max_horizontal = 0.1
+        if max_vertical < 0.1: max_vertical = 0.1
+        
+        # New radius and Z height with padding
+        new_radius = max_horizontal * (1 + padding)
+        new_z = max_vertical * (1 + padding)
+        
+        # Update internal state
+        self.workspace_radius = new_radius
+        self.workspace_z_max = new_z
+        
         # Set limits
-        self.ax.set_xlim([-xy_max, xy_max])
-        self.ax.set_ylim([-xy_max, xy_max])
-        self.ax.set_zlim([0.0, z_max])
+        self.ax.set_xlim([-new_radius, new_radius])
+        self.ax.set_ylim([-new_radius, new_radius])
+        self.ax.set_zlim([0.0, new_z])
+        
         # Update ground and grid to new radius
-        self.update_ground(xy_max)
-        # Update box aspect to match data ranges
-        x_range = 2 * xy_max
-        y_range = 2 * xy_max
-        z_range = z_max
-        self.ax.set_box_aspect((x_range, y_range, z_range))
-        # Set camera distance (perspective) to a comfortable multiple of scene size
-        self.ax.dist = max(x_range, y_range, z_range) * 2.5
+        self.update_ground(new_radius)
+        
+        # Lock aspect ratio (keep X and Y same, Z scaled)
+        # For small robots, we want a taller-looking box for better perspective
+        self.ax.set_box_aspect((1, 1, 0.7))
+        
+        # Move camera closer (dist default is 10, smaller is closer)
+        self.ax.dist = 8.5
         self.draw_idle()
 
     def draw_chain(self, positions, base_height=None):
@@ -472,14 +528,11 @@ class ArmCanvas(FigureCanvas):
         # Hide idle overlay — data has arrived
         self.set_idle_message(False)
 
-        # Clear previous custom meshes and standard meshes
+        # Hide standard meshes if they are visible
         for key in ['base', 'upper', 'lower', 'gripper']:
             if self.meshes[key]:
-                self.meshes[key].remove()
-                self.meshes[key] = None
-        for coll in self.meshes['joints']:
-            coll.remove()
-        self.meshes['joints'].clear()
+                self.meshes[key].set_visible(False)
+        # Clear custom link collections as they might change size
         for coll in self.meshes['custom_links']:
             coll.remove()
         self.meshes['custom_links'].clear()
@@ -490,48 +543,116 @@ class ArmCanvas(FigureCanvas):
         if base_height is None:
             base_height = positions[0, 2]
 
-        # Draw base cuboid (static, from ground up to base origin)
-        base_size = (0.15, 0.15, base_height)
-        base_center = np.array([0.0, 0.0, base_height/2])
-        base_verts, base_faces = cuboid_mesh(base_center, base_size)
-        base_coll = Poly3DCollection([base_verts[face] for face in base_faces], facecolors=self.default_colors['base'], edgecolors='#444', linewidths=0.5)
-        self.ax.add_collection3d(base_coll)
-        self.meshes['base'] = base_coll
+        # ── Scale reference: mean of all *non-degenerate* link lengths ────────
+        # Using mean (not just first link) avoids the Spherical arm bug where
+        # J2 has a=0,d=0 making the first useful link index unpredictable.
+        link_lengths = []
+        for i in range(positions.shape[0] - 1):
+            ln = np.linalg.norm(positions[i+1] - positions[i])
+            if ln > 1e-4:  # skip zero-length DH links
+                link_lengths.append(ln)
 
-        # Draw cylinders for each link (between consecutive joints)
-        link_radius = 0.02
+        scale = float(np.mean(link_lengths)) if link_lengths else 0.15
+        if scale < 0.03:
+            scale = 0.15  # fallback for very compact robots
+
         num_links = positions.shape[0] - 1
+        base_w        = max(0.04, scale * 0.35)
+        base_plate_w  = base_w * 1.6
+        r_base_joint  = max(0.012, scale * 0.12)
+
+        # Draw / Update base plate
+        plate_h = max(0.008, scale * 0.06)
+        p_start = np.array([0, 0, 0])
+        p_end = np.array([0, 0, plate_h])
+        p_verts, p_faces = cylinder_mesh(p_start, p_end, base_plate_w / 2, resolution=24)
+        if p_faces:
+            if 'base_plate' not in self.meshes or self.meshes.get('base_plate') is None:
+                coll = Poly3DCollection([p_verts[f] for f in p_faces],
+                                        facecolors='#444', edgecolors='#555', linewidths=0.3)
+                self.ax.add_collection3d(coll)
+                self.meshes['base_plate'] = coll
+            else:
+                self.meshes['base_plate'].set_verts([p_verts[f] for f in p_faces])
+                self.meshes['base_plate'].set_visible(True)
+
+        # Draw / Update base cylinder
+        b_start = np.array([0, 0, plate_h])
+        b_end = np.array([0, 0, max(plate_h + 1e-4, base_height)])
+        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w / 2, resolution=24)
+        self._update_mesh('base', base_verts, base_faces, self.default_colors['base'])
+
+        # Sync custom_links and joints list
+        while len(self.meshes['custom_links']) < num_links:
+            c = Poly3DCollection([], alpha=1.0)
+            self.ax.add_collection3d(c)
+            self.meshes['custom_links'].append(c)
+        while len(self.meshes['custom_links']) > num_links:
+            c = self.meshes['custom_links'].pop()
+            c.remove()
+
+        while len(self.meshes['joints']) < num_links:
+            c = Poly3DCollection([], alpha=1.0)
+            self.ax.add_collection3d(c)
+            self.meshes['joints'].append(c)
+        while len(self.meshes['joints']) > num_links:
+            c = self.meshes['joints'].pop()
+            c.remove()
+
+        # Draw links and joints with tapering
         for i in range(num_links):
             start_pt = positions[i]
-            end_pt = positions[i+1]
-            verts, faces = cylinder_mesh(start_pt, end_pt, link_radius, resolution=10)
-            # Choose color based on position: first after base = upper, middle = lower, last = gripper
-            if i == 0:
-                color = self.default_colors['upper']
-            elif i == num_links - 1:
-                color = self.default_colors['gripper']
-            else:
-                color = self.default_colors['lower']
-            coll = Poly3DCollection([verts[face] for face in faces], facecolors=color, edgecolors='#444', linewidths=0.5)
-            self.ax.add_collection3d(coll)
-            self.meshes['custom_links'].append(coll)
+            end_pt   = positions[i + 1]
 
-        # Draw joint spheres at each joint position (except base, optional)
-        joint_radius = 0.03
-        # For joints, we have intermediate points (positions[1:-1]) and tip (last)
-        for idx, pt in enumerate(positions[1:]):  # skip base at 0
-            if idx == len(positions) - 2:  # last joint (tip)
-                color_key = 'joint_tip'
-                radius = 0.02
-            else:
-                color_key = 'joint_shoulder' if idx == 0 else 'joint_elbow' if idx == 1 else 'joint_wrist'
-                radius = joint_radius
-            j_verts, j_faces = sphere_mesh(pt, radius, resolution=6)
-            face_arrays = [j_verts[face] for face in j_faces]
-            coll = Poly3DCollection(face_arrays, facecolors=self.default_colors[color_key], edgecolors='#333', linewidths=0.3)
-            self.ax.add_collection3d(coll)
-            self.meshes['joints'].append(coll)
+            seg_len = np.linalg.norm(end_pt - start_pt)
 
+            # Tapering factor: 1.0 at base → 0.4 at tip
+            taper       = 1.0 - (i / max(num_links, 1)) * 0.6
+            curr_link_r = r_base_joint * 0.8 * taper
+            curr_joint_r = r_base_joint * taper
+
+            # ── Link cylinder ──────────────────────────────────────────────
+            if seg_len > 1e-4:   # skip zero-length DH links (no mesh = no stretch)
+                verts, faces = cylinder_mesh(start_pt, end_pt, curr_link_r, resolution=16)
+                if faces:
+                    if i == 0:
+                        color = self.default_colors['upper']
+                    elif i == num_links - 1:
+                        color = self.default_colors['gripper']
+                    else:
+                        color = self.default_colors['lower']
+                    self.meshes['custom_links'][i].set_verts([verts[f] for f in faces])
+                    self.meshes['custom_links'][i].set_facecolor(color)
+                    self.meshes['custom_links'][i].set_edgecolor('#444')
+                    self.meshes['custom_links'][i].set_linewidth(0.5)
+                    self.meshes['custom_links'][i].set_visible(True)
+                else:
+                    self.meshes['custom_links'][i].set_visible(False)
+            else:
+                self.meshes['custom_links'][i].set_visible(False)
+
+            # ── Joint sphere (at end_pt, always drawn regardless of seg_len) ──
+            if i == num_links - 1:
+                j_color = self.default_colors['joint_tip']
+                curr_joint_r *= 0.8
+            else:
+                color_key = ('joint_shoulder' if i == 0
+                             else 'joint_elbow' if i == 1
+                             else 'joint_wrist')
+                j_color = self.default_colors[color_key]
+
+            j_verts, j_faces = sphere_mesh(end_pt, curr_joint_r, resolution=16)
+            if j_faces:
+                self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
+                self.meshes['joints'][i].set_facecolor(j_color)
+                self.meshes['joints'][i].set_edgecolor('#333')
+                self.meshes['joints'][i].set_linewidth(0.3)
+                self.meshes['joints'][i].set_visible(True)
+            else:
+                self.meshes['joints'][i].set_visible(False)
+
+        # Adjust viewport to fit the new chain size
+        self._adjust_limits(positions)
         self.draw_idle()
 
     def toggle_ground(self, visible: bool):

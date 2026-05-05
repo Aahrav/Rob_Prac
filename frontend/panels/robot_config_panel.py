@@ -83,10 +83,10 @@ class RobotConfigPanel(QWidget):
     config_changed = pyqtSignal(object)  # ArmConfig
 
     PRESETS = {
-        'Default': ArmConfig(base_height=0.1, upper_arm_length=0.3, lower_arm_length=0.25, gripper_offset=0.05),
-        'Small':   ArmConfig(base_height=0.08, upper_arm_length=0.2, lower_arm_length=0.15, gripper_offset=0.03),
-        'Medium':  ArmConfig(base_height=0.1, upper_arm_length=0.4, lower_arm_length=0.35, gripper_offset=0.07),
-        'Large':   ArmConfig(base_height=0.15, upper_arm_length=0.6, lower_arm_length=0.5, gripper_offset=0.1),
+        'Default': ArmConfig(base_height=0.10, upper_arm_length=0.30, lower_arm_length=0.25, gripper_offset=0.08),
+        'Desktop': ArmConfig(base_height=0.06, upper_arm_length=0.20, lower_arm_length=0.18, gripper_offset=0.05),
+        'Industrial': ArmConfig(base_height=0.15, upper_arm_length=0.50, lower_arm_length=0.45, gripper_offset=0.12),
+        'Long Reach': ArmConfig(base_height=0.12, upper_arm_length=0.70, lower_arm_length=0.65, gripper_offset=0.15),
     }
 
     def __init__(self, config: ArmConfig = None, parent=None):

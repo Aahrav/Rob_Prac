@@ -240,7 +240,7 @@ def inverse_kinematics_3dof(x: float, y: float, z: float, config: ArmConfig = No
 class DHJoint:
     """Represents a single joint using Denavit-Hartenberg parameters."""
     def __init__(self, joint_type: str, theta: float, d: float, a: float, alpha: float, 
-                 name: str = "", q_min: float = None, q_max: float = None):
+                 name: str = "", q_min: float = None, q_max: float = None, **kwargs):
         """
         Args:
             joint_type: 'revolute' or 'prismatic' or 'fixed'
@@ -249,7 +249,8 @@ class DHJoint:
             a: link length (meters) along x-axis
             alpha: twist angle (degrees) about x-axis
             name: optional joint name for UI
-            q_min, q_max: optional joint limits (degrees for revolute, meters for prismatic)
+            mass: mass of the link attached to this joint (kg)
+            com_offset: distance from joint origin to center of mass along link axis 'a' (meters)
         """
         self.type = joint_type  # 'revolute', 'prismatic', 'fixed'
         self.theta = float(theta)  # degrees
@@ -259,6 +260,8 @@ class DHJoint:
         self.name = name or f"Joint {id(self) % 1000}"
         self.q_min = q_min
         self.q_max = q_max
+        self.mass = kwargs.get('mass', 1.0)  # default 1kg
+        self.com_offset = kwargs.get('com_offset', a / 2.0 if a != 0 else d / 2.0)
 
     def to_dict(self):
         return {
@@ -286,6 +289,25 @@ class KinematicChain:
         self.joints = joints if joints is not None else []
         self.base_height = base_height
         self.name = name
+
+    def get_max_reach(self) -> float:
+        """
+        Calculate the maximum possible distance the end-effector can reach from the base origin.
+        This is the sum of Euclidean distances for each link plus the base height.
+        """
+        total_arm_length = 0.0
+        for i, j in enumerate(self.joints):
+            # The Euclidean length of the link segment defined by this joint
+            link_len = np.sqrt(j.a**2 + j.d**2)
+            
+            # If prismatic, we must also account for the maximum stroke
+            if j.type == 'prismatic' and j.q_max is not None:
+                # Use max of fixed offset and prismatic stroke
+                link_len = max(link_len, abs(j.q_max))
+                
+            total_arm_length += link_len
+            
+        return total_arm_length
 
     def add_joint(self, joint: DHJoint):
         self.joints.append(joint)
@@ -388,24 +410,65 @@ class KinematicChain:
         joints = [DHJoint.from_dict(j) for j in data['joints']]
         return KinematicChain(joints, base_height=data.get('base_height', 0.0))
 
-    def get_max_reach(self) -> float:
+        # Removed get_max_reach from here (moved to top of class)
+
+    def compute_gravity_torques(self, joint_angles: List[float] = None) -> List[float]:
         """
-        Calculate the maximum possible distance the end-effector can reach from the base.
-        This is a conservative upper bound (sum of all link lengths and prismatic strokes).
+        Estimate static torques (Nm) required to hold the current pose against gravity.
+        Uses a simplified recursive moment calculation.
+        
+        Returns list of torques for each joint.
         """
-        max_reach = 0.0
-        for i, j in enumerate(self.joints):
-            contribution = 0.0
-            if j.type == 'prismatic':
-                d_max = abs(j.d)
-                if j.q_max is not None:
-                    d_max = max(d_max, abs(j.q_max))
-                contribution = abs(j.a) + d_max
+        transforms = self.forward_kinematics(joint_angles)
+        n = len(self.joints)
+        torques = [0.0] * n
+        g = np.array([0.0, 0.0, -9.81])  # Gravity vector
+        
+        # Calculate forces and moments from end-effector back to base
+        # This is a simplified static Inverse Dynamics (IDyn)
+        for i in range(n - 1, -1, -1):
+            joint = self.joints[i]
+            T_prev = transforms[i]  # Frame of PREVIOUS joint (base of current link)
+            T_curr = transforms[i+1] # Frame of CURRENT joint (tip of current link)
+            
+            # Center of mass in world coordinates
+            # Simplified: CoM is along the link axis 'a'
+            com_local = np.array([joint.com_offset, 0, 0, 1])
+            com_world = (T_prev @ com_local)[:3]
+            
+            # Moment arm from joint origin to CoM
+            origin_world = T_prev[:3, 3]
+            r = com_world - origin_world
+            
+            # Torque due to this link's weight
+            # tau = r x F
+            weight_force = np.array([0, 0, joint.mass * -9.81])
+            link_torque = np.cross(r, weight_force)
+            
+            # The joint only resists torque along its axis (Z-axis of PREVIOUS frame)
+            z_axis = T_prev[:3, 2]
+            
+            if joint.type == 'revolute':
+                # Projection of link torque onto joint axis
+                torques[i] = np.dot(link_torque, z_axis)
+                
+                # Add torques from downstream links (simplified)
+                for j in range(i + 1, n):
+                    down_joint = self.joints[j]
+                    down_com_local = np.array([down_joint.com_offset, 0, 0, 1])
+                    down_com_world = (transforms[j] @ down_com_local)[:3]
+                    down_r = down_com_world - origin_world
+                    down_weight = np.array([0, 0, down_joint.mass * -9.81])
+                    down_torque = np.cross(down_r, down_weight)
+                    torques[i] += np.dot(down_torque, z_axis)
             else:
-                contribution = abs(j.a) + abs(j.d)
-            max_reach += contribution
-            log.info("Joint %d (%s) reach contribution: %.4f", i+1, j.name, contribution)
-        return max_reach
+                # For prismatic joints, we care about force along the Z axis
+                torques[i] = np.dot(weight_force, z_axis)
+                for j in range(i + 1, n):
+                    down_weight = np.array([0, 0, self.joints[j].mass * -9.81])
+                    torques[i] += np.dot(down_weight, z_axis)
+                    
+        return torques
 
     def inverse_kinematics(self, target_position: np.ndarray, initial_angles: List[float] = None, max_iter: int = 1000, tol: float = 0.005) -> Optional[List[float]]:
         """
@@ -435,12 +498,23 @@ class KinematicChain:
             [(i, self.joints[i].type, self.joints[i].name) for i in var_indices],
         )
 
-        # Quick reachability check
+        # Quick reachability check — measure from the FK-computed first joint origin
+        # so fixed d-offsets (like Spherical arm J1 d=0.10) are accounted for.
         max_reach = self.get_max_reach()
-        dist = np.linalg.norm(target_position - np.array([0.0, 0.0, self.base_height]))
-        log.debug("IK reachability | max_reach=%.4f | dist_from_base=%.4f", max_reach, dist)
-        if dist > max_reach * 1.05:
-            log.warning("IK aborted — target out of reach (dist=%.4f > max_reach*1.05=%.4f)", dist, max_reach * 1.05)
+        # Get the position of the base frame after any fixed joints / d offsets
+        base_transforms = self.forward_kinematics([0.0] * len(self.joints))
+        first_var = var_indices[0]
+        base_origin = base_transforms[first_var][:3, 3]
+        dist = np.linalg.norm(target_position - base_origin)
+        log.debug(
+            "IK reachability | max_reach=%.4f | dist_from_first_joint=%.4f | base_origin=%s",
+            max_reach, dist, base_origin.round(4).tolist(),
+        )
+        if dist > max_reach * 1.10:
+            log.warning(
+                "IK aborted — target likely unreachable (dist=%.4f > max_reach*1.10=%.4f)",
+                dist, max_reach * 1.10,
+            )
             return None
 
         def _run_ik(start_full_angles, run_label=""):
@@ -448,12 +522,11 @@ class KinematicChain:
             best_angles = angles[:]
             best_error = float('inf')
 
-            # Finite-difference delta: 0.01° for revolute, 0.1mm for prismatic
-            delta_deg = 0.01
-            # Damping factor — start small, increase if stuck
-            damping = 0.01
-            max_step_deg = 10.0
-            max_step_m = 0.02
+            # Damping factor — increased for stability in singular configurations
+            delta_deg = 0.01    # finite-difference step for Jacobian (degrees / metres)
+            damping = 0.1
+            max_step_deg = 5.0
+            max_step_m = 0.01
 
             log.debug(
                 "IK run%s | start=%s",
@@ -514,6 +587,13 @@ class KinematicChain:
                         step = np.clip(step, -max_step_m, max_step_m)
                     angles[idx] += step
 
+                    # ── Enforce joint limits (prevents workspace escape) ──
+                    j = self.joints[idx]
+                    if j.q_min is not None:
+                        angles[idx] = max(angles[idx], j.q_min)
+                    if j.q_max is not None:
+                        angles[idx] = min(angles[idx], j.q_max)
+
             log.debug(
                 "IK run%s ended | best_err=%.5f | best_angles=%s",
                 f" [{run_label}]" if run_label else "",
@@ -562,7 +642,7 @@ class KinematicChain:
 
         # Random restarts
         rng = np.random.default_rng(42)
-        for restart_idx in range(10):
+        for restart_idx in range(30):
             rand_start = []
             for j in self.joints:
                 if j.type == 'revolute':

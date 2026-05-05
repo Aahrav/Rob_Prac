@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QSplitter, QVBoxLayout,
                               QStatusBar, QFrame, QSizePolicy, QMenu, QMessageBox)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QFontDatabase, QColor, QAction, QShortcut, QKeySequence
+import numpy as np
 
 from backend.kinematics import compute_arm_positions, ArmConfig, inverse_kinematics_3dof, KinematicChain
 from backend.logger import get_logger
@@ -70,6 +71,7 @@ QScrollBar::handle:horizontal { background: #353535; border-radius: 3px; }
 /* ── Splitter ─────────────────────────────────────────────────────────── */
 QSplitter::handle { background-color: #0e0e0e; width: 2px; }
 QSplitter::handle:horizontal { width: 2px; }
+QSplitter::handle:vertical { height: 2px; }
 
 /* ── Tooltips ─────────────────────────────────────────────────────────── */
 QToolTip {
@@ -261,6 +263,23 @@ class MainWindow(QMainWindow):
 
         # Auto-replay path (--replay) — started after window.show()
         self._replay_path: str | None = replay_path
+
+        # ── Telemetry Logging (for Analysis Dashboard) ────────────────────
+        self._telemetry = {
+            't': [], 'joints': [], 'ee_pos': [],
+            'vel': [], 'acc': [], 'torques': []
+        }
+        self._last_telemetry_t = 0.0
+        self._last_q = None
+        self._last_dq = None
+        self.analysis_dashboard = None
+
+        # ── Animation Replay Module ───────────────────────────────────────
+        from backend.replay_buffer import ReplayBuffer
+        from backend.replay_controller import ReplayController
+        self._replay_buffer = ReplayBuffer(name="live_session")
+        self._replay_controller = ReplayController(self)
+        self._replay_controller.frame_changed.connect(self._on_replay_frame)
 
         # ── Central widget ────────────────────────────────────────────────
         central = QWidget()
@@ -582,13 +601,62 @@ class MainWindow(QMainWindow):
         self.btn_reset_view.clicked.connect(self._reset_view)
         tb_layout.addWidget(self.btn_reset_view)
 
+        # Analysis Dashboard Button
+        self.btn_analysis = QPushButton("📈  Analysis")
+        self.btn_analysis.setStyleSheet("""
+            QPushButton {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 14px;
+                font-size: 10px;
+                font-weight: 600;
+                min-height: 26px;
+            }
+            QPushButton:hover { background-color: #34495e; }
+        """)
+        self.btn_analysis.clicked.connect(self._on_show_analysis)
+        tb_layout.addWidget(self.btn_analysis)
+
         self.right_layout.addWidget(toolbar)
 
+        # ── Viewport Splitter (Vertical) ──────────────────────────────────
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.right_splitter.setStyleSheet("QSplitter::handle { background-color: #1a1a1a; height: 2px; }")
+
         # ── 3D Canvas ─────────────────────────────────────────────────────
+        from frontend.panels.arm_canvas import ArmCanvas
+        from frontend.panels.ee_map_panel import EEMapPanel
+
         self.arm_canvas = ArmCanvas()
         self.arm_canvas.config = self.kinematics_config
-        self.arm_canvas.setMinimumSize(600, 500)
-        self.right_layout.addWidget(self.arm_canvas, stretch=1)
+        self.arm_canvas.setMinimumSize(400, 300)  # Relaxed minimums
+        self.right_splitter.addWidget(self.arm_canvas)
+
+        # ── 2D Map ────────────────────────────────────────────────────────
+        self.ee_map = EEMapPanel()
+        self.ee_map.setMinimumHeight(200)  # Relaxed minimums
+        self.right_splitter.addWidget(self.ee_map)
+
+        # ── Replay Control Bar (between canvas and map in right_layout) ───
+        from frontend.panels.replay_bar import ReplayControlBar
+        self.replay_bar = ReplayControlBar(self._replay_controller)
+        self.replay_bar.record_toggled.connect(self._on_record_toggled)
+        self.replay_bar.export_requested.connect(self._on_export_requested)
+        self.right_layout.addWidget(self.replay_bar)
+        
+        # Set initial proportions (e.g. 60% 3D, 40% 2D)
+        self.right_splitter.setStretchFactor(0, 3)
+        self.right_splitter.setStretchFactor(1, 2)
+        self.right_splitter.setSizes([500, 350])
+
+        self.right_layout.addWidget(self.right_splitter, stretch=1)
+        
+        # Connect map click to trajectory panel
+        self.ee_map.target_selected.connect(
+            lambda x, y: self.trajectory_panel.set_target_xyz(x, y)
+        )
 
         # ── Wire up remaining connections ──────────────────────────────────
         self.connection_panel.connect_requested.connect(self._on_connect_requested)
@@ -601,6 +669,23 @@ class MainWindow(QMainWindow):
         cal_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
         cal_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         cal_shortcut.activated.connect(self._on_calibrate)
+
+        # ── Replay keyboard shortcuts ─────────────────────────────────────
+        QShortcut(QKeySequence("Space"), self).activated.connect(
+            self._replay_controller.toggle_play_pause
+        )
+        QShortcut(QKeySequence("Left"), self).activated.connect(
+            lambda: self._replay_controller.step(-1)
+        )
+        QShortcut(QKeySequence("Right"), self).activated.connect(
+            lambda: self._replay_controller.step(+1)
+        )
+        QShortcut(QKeySequence("R"), self).activated.connect(
+            self._toggle_record_shortcut
+        )
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(
+            self._on_export_requested
+        )
 
         # ── Auto-replay (--replay CLI flag) ───────────────────────────────
         # Deferred via singleShot(0) so the window is fully rendered first.
@@ -828,6 +913,8 @@ class MainWindow(QMainWindow):
             self.connection_panel.set_connected(False)
             self.connection_panel.set_status(message)
             self._update_panel_visibility()
+            if hasattr(self, 'ee_map'):
+                self.ee_map.clear_history()
 
     def _on_producer_error(self, error: str) -> None:
         """Handle error signals from any producer worker."""
@@ -921,6 +1008,9 @@ class MainWindow(QMainWindow):
         self.current_angles = [roll, pitch, yaw]
         positions = compute_arm_positions(roll, pitch, yaw, config=self.kinematics_config)
         self.arm_canvas.draw_arm(positions)
+        
+        # Log telemetry for analysis
+        self._log_telemetry([roll, pitch, yaw], positions[-1])
 
     def _on_target_angles(self, angles: list):
         """IK sliders — active only while disconnected (no streaming producer)."""
@@ -970,11 +1060,15 @@ class MainWindow(QMainWindow):
             f"<span style='color:#ffba4b;'>Z</span> {z:+.4f} m"
         )
         self.sb_ee.setText(f"EE: ({x:.3f}, {y:.3f}, {z:.3f})")
+        if hasattr(self, 'ee_map'):
+            self.ee_map.set_position(x, y)
 
     def _on_robot_config_changed(self, config):
         self.kinematics_config = config
         max_reach = config.upper_arm_length + config.lower_arm_length + config.gripper_offset
         self.arm_canvas.update_workspace_boundary(max_reach)
+        if hasattr(self, 'ee_map'):
+            self.ee_map.update_workspace(max_reach)
         self.trajectory_panel.update_config(config)
         x, y, z = self.trajectory_panel.current_pos
         result = inverse_kinematics_3dof(x, y, z, config=config, elbow_down=True)
@@ -1045,6 +1139,169 @@ class MainWindow(QMainWindow):
             self.arm_canvas.draw_chain(positions, base_height=self.chain_panel.chain.base_height)
             tip = positions[-1]
             self._update_ee_display(tip[0], tip[1], tip[2])
+            
+            # Log telemetry for analysis (Custom DH mode)
+            angles = [j.theta if j.type == 'revolute' else j.d for j in self.chain_panel.chain.joints]
+            torques = self.chain_panel.chain.compute_gravity_torques()
+            self._log_telemetry(angles, tip, torques=torques)
+
+    def _log_telemetry(self, angles, ee_pos, torques=None):
+        """Record a slice of robot state into the telemetry buffer."""
+        import time
+        now = time.monotonic()
+        if not hasattr(self, '_start_time'):
+            self._start_time = now
+        
+        t_rel = now - self._start_time
+        dt = t_rel - self._last_telemetry_t
+        
+        if dt < 0.001: return # Avoid div by zero
+        
+        q = np.array(angles)
+        dq = np.zeros_like(q)
+        ddq = np.zeros_like(q)
+        
+        if self._last_q is not None and len(self._last_q) == len(q):
+            dq = (q - self._last_q) / dt
+            if self._last_dq is not None:
+                ddq = (dq - self._last_dq) / dt
+        
+        self._last_telemetry_t = t_rel
+        self._last_q = q
+        self._last_dq = dq
+        
+        # Update buffer
+        self._telemetry['t'].append(t_rel)
+        self._telemetry['joints'].append(angles)
+        self._telemetry['ee_pos'].append(list(ee_pos))
+        self._telemetry['vel'].append(dq.tolist())
+        self._telemetry['acc'].append(ddq.tolist())
+        
+        if torques is None:
+            # Estimate torques if not provided (Standard 3-DOF)
+            if self.mode == 'standard':
+                chain = KinematicChain.create_3dof_arm(self.kinematics_config)
+                torques = chain.compute_gravity_torques(angles)
+            else:
+                torques = [0.0] * len(angles)
+        self._telemetry['torques'].append(torques)
+        
+        # Keep buffer size manageable (5000 points ~ 80 seconds at 60Hz)
+        max_buf = 5000
+        if len(self._telemetry['t']) > max_buf:
+            for key in self._telemetry:
+                self._telemetry[key].pop(0)
+
+        # ── Live recording into ReplayBuffer ─────────────────────────────
+        if self._replay_controller.is_recording:
+            from backend.replay_buffer import Frame
+            idx = len(self._replay_buffer)
+            frame = Frame(
+                index=idx,
+                t=t_rel,
+                joints=list(angles),
+                ee_pos=list(ee_pos),
+                torques=list(torques) if torques else [],
+                metadata={'vel': dq.tolist(), 'acc': ddq.tolist()},
+            )
+            self._replay_buffer.record(frame)
+
+    def _on_show_analysis(self):
+        """Launch the Robot Analysis Dashboard."""
+        from frontend.panels.analysis_dashboard import AnalysisDashboard
+        if self.analysis_dashboard is None or not self.analysis_dashboard.isVisible():
+            self.analysis_dashboard = AnalysisDashboard(
+                get_telemetry=lambda: self._telemetry,
+                seek_callback=self._replay_controller.seek_time,
+                parent=self,
+            )
+            self.analysis_dashboard.show()
+        else:
+            self.analysis_dashboard.raise_()
+            self.analysis_dashboard.activateWindow()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  Animation Replay handlers
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_replay_frame(self, idx: int) -> None:
+        """Render the frame at index idx from the replay buffer."""
+        buf = self._replay_buffer
+        if not buf or idx >= len(buf):
+            return
+        frame = buf.get_frame(idx)
+        self._render_delegate(frame)
+
+    def _render_delegate(self, frame) -> None:
+        """
+        RenderDelegate — the ONLY place that knows robot mode.
+        Translates a generic Frame into a concrete canvas draw call.
+        """
+        from backend.kinematics import compute_arm_positions
+        joints = frame.joints
+        ee = frame.ee_pos
+
+        if self.mode == 'standard':
+            q1 = joints[0] if len(joints) > 0 else 0.0
+            q2 = joints[1] if len(joints) > 1 else 0.0
+            q3 = joints[2] if len(joints) > 2 else 0.0
+            positions = compute_arm_positions(q1, q2, q3, config=self.kinematics_config)
+            self.arm_canvas.draw_arm(positions)
+        else:
+            chain = self.chain_panel.chain
+            var_joints = [j for j in chain.joints if j.type in ('revolute', 'prismatic')]
+            for i, joint in enumerate(var_joints):
+                if i < len(joints):
+                    if joint.type == 'revolute':
+                        joint.theta = joints[i]
+                    else:
+                        joint.d = joints[i]
+            positions = chain.joint_positions()
+            self.arm_canvas.draw_chain(positions, base_height=chain.base_height)
+
+        if len(ee) >= 3:
+            self._update_ee_display(ee[0], ee[1], ee[2])
+
+        # Sync Analysis Dashboard cursor if open
+        if self.analysis_dashboard and self.analysis_dashboard.isVisible():
+            if hasattr(self.analysis_dashboard, 'update_cursor'):
+                self.analysis_dashboard.update_cursor(frame.t)
+
+    def _on_record_toggled(self, active: bool) -> None:
+        """Called when the ReplayControlBar record button is toggled."""
+        if active:
+            self._replay_buffer.clear()
+            self._replay_controller.start_recording(self._replay_buffer)
+            self.sb_message.setText("⏺ Recording…")
+        else:
+            self._replay_controller.stop_recording()
+            n = len(self._replay_buffer)
+            self.sb_message.setText(
+                f"Recording stopped — {n} frames ({self._replay_buffer.duration:.1f}s) ready for replay."
+            )
+            # Attach buffer to controller so playback can start immediately
+            self._replay_controller.set_buffer(self._replay_buffer)
+
+    def _toggle_record_shortcut(self) -> None:
+        """Keyboard shortcut R — toggle recording via the bar button."""
+        if hasattr(self, 'replay_bar'):
+            self.replay_bar.btn_record.toggle()
+
+    def _on_export_requested(self) -> None:
+        """Launch the export dialog with a robot-agnostic render function."""
+        from frontend.panels.replay_export_dialog import ReplayExportDialog
+        buf = self._replay_buffer
+        if not buf:
+            self.sb_message.setText("Nothing to export — record an animation first.")
+            return
+
+        # Build a render_fn that captures the current canvas state
+        def render_fn(frame):
+            self._render_delegate(frame)
+            return self.arm_canvas.fig  # matplotlib Figure
+
+        dlg = ReplayExportDialog(buf, render_fn=render_fn, parent=self)
+        dlg.exec()
 
     def _on_ee_updated(self, pos):
         x, y, z = pos
@@ -1134,6 +1391,13 @@ class MainWindow(QMainWindow):
         act_shortcuts.setShortcut("Ctrl+/")
         act_shortcuts.triggered.connect(self._show_shortcuts)
         help_menu.addAction(act_shortcuts)
+
+        help_menu.addSeparator()
+
+        act_analysis = QAction("Launch &Analysis Dashboard", self)
+        act_analysis.setShortcut("Ctrl+G")
+        act_analysis.triggered.connect(self._on_show_analysis)
+        help_menu.addAction(act_analysis)
 
     def _show_about(self) -> None:
         QMessageBox.about(

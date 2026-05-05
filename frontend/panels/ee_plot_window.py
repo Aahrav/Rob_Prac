@@ -12,6 +12,7 @@ from PyQt6.QtCore import QTimer
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import numpy as np
 
 
 class EEPlotWindow(QDialog):
@@ -52,21 +53,31 @@ class EEPlotWindow(QDialog):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(200)  # 5 Hz UI refresh
+        self._timer.start(16)  # 60 Hz UI refresh
+
+        self._last_trace_len = 0
 
     def _tick(self):
-        trace = list(self._get_trace() or [])
+        trace = self._get_trace()
+        if not trace or len(trace) == self._last_trace_len:
+            return
+        
+        self._last_trace_len = len(trace)
         if len(trace) < 2:
             return
-        t = [p[0] for p in trace]
-        x = [p[1] for p in trace]
-        y = [p[2] for p in trace]
-        z = [p[3] for p in trace]
+            
+        # Convert list of tuples to numpy array for faster indexing
+        arr = np.array(trace)
+        t = arr[:, 0]
+        x = arr[:, 1]
+        y = arr[:, 2]
+        z = arr[:, 3]
 
         self.lx.set_data(t, x)
         self.ly.set_data(t, y)
         self.lz.set_data(t, z)
 
+        # Only autoscale if we have new points that might be outside bounds
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw_idle()

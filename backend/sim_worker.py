@@ -46,8 +46,8 @@ class SimWorker(QThread):
     producer_error  = pyqtSignal(str)   # kept for interface parity; not used here
     producer_status = pyqtSignal(str)
 
-    # Tick interval in seconds (20 Hz)
-    TICK_S = 0.05
+    # Tick interval in seconds (60 Hz for smoother animation)
+    TICK_S = 0.01666
 
     def __init__(self, parent=None):
         super().__init__(parent)

@@ -465,14 +465,14 @@ class TrajectoryPanel(QWidget):
     def update_workspace_ranges(self):
         if self.use_custom_chain and self.chain is not None and len(self.chain.joints) > 0:
             total_reach = self.chain.get_max_reach()
-            self.lbl_workspace.setText(f"Max reach: {total_reach:.3f} m")
-            self.lbl_workspace.setStyleSheet("color: #2ecc71; font-weight: 600;")
             base_h = self.chain.base_height
+            self.lbl_workspace.setText(f"Arm Reach: {total_reach:.3f}m | Max Z: {(base_h + total_reach):.3f}m")
+            self.lbl_workspace.setStyleSheet("color: #2ecc71; font-weight: 600;")
         else:
             cfg = self.config
             total_reach = cfg.upper_arm_length + cfg.lower_arm_length + cfg.gripper_offset
             base_h = cfg.base_height
-            self.lbl_workspace.setText(f"Max reach: {total_reach:.2f} m")
+            self.lbl_workspace.setText(f"Arm Reach: {total_reach:.2f}m | Max Z: {(base_h + total_reach):.2f}m")
             self.lbl_workspace.setStyleSheet("color: #89929b; font-size: 11px;")
 
         margin = total_reach * 0.05
@@ -504,4 +504,12 @@ class TrajectoryPanel(QWidget):
             self.spin_y.setValue(new_y)
             self.spin_z.setValue(new_z)
 
-        self.lbl_workspace.setText(f"Max reach: {total_reach:.2f} m")
+        # Finished updating workspace
+    def set_target_xyz(self, x: float, y: float, z: Optional[float] = None):
+        """External entry point to set target coordinates from Map or other panels."""
+        self.spin_x.setValue(x)
+        self.spin_y.setValue(y)
+        if z is not None:
+            self.spin_z.setValue(z)
+        self._update_current_pos()
+        self._set_target_clicked()  # Automatically "Set" it as the animation target
