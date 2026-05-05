@@ -6,7 +6,7 @@ ArmCanvas - 3D Robotic Arm visualization with realistic meshes, ground plane, an
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import numpy as np
 from backend.meshes import cylinder_mesh, sphere_mesh, cuboid_mesh
 from backend.kinematics import ArmConfig
@@ -121,12 +121,16 @@ class ArmCanvas(FigureCanvas):
             # Widescreen: stretch X limits to fill horizontal space
             self.ax.set_xlim([-xy_max * aspect, xy_max * aspect])
             self.ax.set_ylim([-xy_max, xy_max])
-            self.ax.set_box_aspect((base_x_range * aspect, base_y_range, z_max))
+            self.ax.set_box_aspect((2 * xy_max * aspect, 2 * xy_max, z_max))
         else:
             # Tallscreen: stretch Y limits to fill vertical space
             self.ax.set_xlim([-xy_max, xy_max])
             self.ax.set_ylim([-xy_max / aspect, xy_max / aspect])
-            self.ax.set_box_aspect((base_x_range, base_y_range / aspect, z_max))
+            self.ax.set_box_aspect((2 * xy_max, 2 * xy_max / aspect, z_max))
+        
+        # Ensure the axes occupies the full figure on every resize
+        self.ax.set_position([0, 0, 1, 1])
+        self.draw_idle()
 
 
 
@@ -485,31 +489,42 @@ class ArmCanvas(FigureCanvas):
         self._ground_elements.clear()
         
         self.workspace_radius = radius
-        size = radius * 5.0  # Draw a massive grid so it doesn't clip when stretching
+        # Draw a grid large enough to cover widescreen but small enough to avoid projection issues
+        size = radius * 8.0 
 
-        # Grid lines every 0.25m
+        # Grid lines coordinates
+        segments = []
         step = 0.25
         grid_color = '#3a3a3a'
+        
+        # Build grid segments
         for x in np.arange(-size, size + step, step):
-            if abs(x) > 1e-5:  # skip origin for axis lines
-                line = self.ax.plot([x, x], [-size, size], [0,0], color=grid_color, linewidth=0.8)[0]
-                self._ground_elements.append(line)
+            if abs(x) > 1e-5:
+                segments.append([[x, -size, 0], [x, size, 0]])
         for y in np.arange(-size, size + step, step):
             if abs(y) > 1e-5:
-                line = self.ax.plot([-size, size], [y, y], [0,0], color=grid_color, linewidth=0.8)[0]
-                self._ground_elements.append(line)
+                segments.append([[-size, y, 0], [size, y, 0]])
+        
+        # Add as a single collection (MUCH faster)
+        grid_coll = Line3DCollection(segments, colors=grid_color, linewidths=0.5, alpha=0.4)
+        grid_coll.set_clip_on(False) # Prevent clipping to the xlim/ylim box
+        self.ax.add_collection3d(grid_coll)
+        self._ground_elements.append(grid_coll)
 
         # Origin Axes (Blender colors: X=Red, Y=Green, Z=Blue)
         z_max = self.ax.get_zlim()[1]
         
-        axis_len = radius * 1.5 # Keep colored axes moderately sized
-        line_x = self.ax.plot([-axis_len, axis_len], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
+        axis_len = radius * 2.0
+        line_x = self.ax.plot([-axis_len, axis_len], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5, zorder=5)[0]
+        line_x.set_clip_on(False)
         self._ground_elements.append(line_x)
         
-        line_y = self.ax.plot([0, 0], [-axis_len, axis_len], [0, 0], color='#2ecc71', linewidth=1.5)[0]
+        line_y = self.ax.plot([0, 0], [-axis_len, axis_len], [0, 0], color='#2ecc71', linewidth=1.5, zorder=5)[0]
+        line_y.set_clip_on(False)
         self._ground_elements.append(line_y)
         
-        line_z = self.ax.plot([0, 0], [0, 0], [0, z_max], color='#3498db', linewidth=1.5)[0]
+        line_z = self.ax.plot([0, 0], [0, 0], [0, z_max], color='#3498db', linewidth=1.5, zorder=5)[0]
+        line_z.set_clip_on(False)
         self._ground_elements.append(line_z)
 
         # Labels for the origin axes
@@ -524,6 +539,7 @@ class ArmCanvas(FigureCanvas):
         y_circle = radius * np.sin(theta)
         z_circle = np.zeros_like(x_circle)
         circle_line = self.ax.plot(x_circle, y_circle, z_circle, color='#999', linewidth=0.8, alpha=0.25, linestyle='--')[0]
+        circle_line.set_clip_on(False)
         self._ground_elements.append(circle_line)
         self._workspace_circle = circle_line
         self.draw_idle()
@@ -543,7 +559,7 @@ class ArmCanvas(FigureCanvas):
         # Update ground and grid to new radius
         self.update_ground(xy_max)
         # Set camera distance (perspective) to a comfortable multiple of scene size
-        self.ax.dist = max(xy_max * 2, z_max) * 2.5
+        self.ax.dist = max(xy_max * 2, z_max) * 2.2
         
         # Apply responsive limits and box aspect to fill widget
         self._update_aspect_ratio()
