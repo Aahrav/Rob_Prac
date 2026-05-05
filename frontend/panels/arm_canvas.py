@@ -20,7 +20,8 @@ class ArmCanvas(FigureCanvas):
         super().__init__(self.fig)
         self.setParent(parent)
 
-        self.ax = self.fig.add_subplot(111, projection='3d')
+        self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        self.ax = self.fig.add_axes([0, 0, 1, 1], projection='3d')
         self.ax.set_facecolor('#282828')
         
         # Turn off default matplotlib bounding box to mimic Blender's infinite void
@@ -96,6 +97,38 @@ class ArmCanvas(FigureCanvas):
         )
 
         self._init_empty_plot()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_aspect_ratio()
+
+    def _update_aspect_ratio(self):
+        """Dynamically adjust 3D box aspect and data limits to fill the canvas widget."""
+        w = self.width()
+        h = self.height()
+        if h <= 0 or not hasattr(self, 'workspace_radius'):
+            return
+
+        aspect = w / h
+        xy_max = self.workspace_radius
+        z_max = self.ax.get_zlim()[1]
+        
+        # Base physical bounds
+        base_x_range = 2 * xy_max
+        base_y_range = 2 * xy_max
+        
+        if aspect > 1.0:
+            # Widescreen: stretch X limits to fill horizontal space
+            self.ax.set_xlim([-xy_max * aspect, xy_max * aspect])
+            self.ax.set_ylim([-xy_max, xy_max])
+            self.ax.set_box_aspect((base_x_range * aspect, base_y_range, z_max))
+        else:
+            # Tallscreen: stretch Y limits to fill vertical space
+            self.ax.set_xlim([-xy_max, xy_max])
+            self.ax.set_ylim([-xy_max / aspect, xy_max / aspect])
+            self.ax.set_box_aspect((base_x_range, base_y_range / aspect, z_max))
+
+
 
     def _custom_button_press(self, event):
         """Intercept button press to support Shift+Middle Click for panning."""
@@ -452,7 +485,7 @@ class ArmCanvas(FigureCanvas):
         self._ground_elements.clear()
         
         self.workspace_radius = radius
-        size = radius
+        size = radius * 5.0  # Draw a massive grid so it doesn't clip when stretching
 
         # Grid lines every 0.25m
         step = 0.25
@@ -469,18 +502,19 @@ class ArmCanvas(FigureCanvas):
         # Origin Axes (Blender colors: X=Red, Y=Green, Z=Blue)
         z_max = self.ax.get_zlim()[1]
         
-        line_x = self.ax.plot([-size, size], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
+        axis_len = radius * 1.5 # Keep colored axes moderately sized
+        line_x = self.ax.plot([-axis_len, axis_len], [0, 0], [0, 0], color='#e74c3c', linewidth=1.5)[0]
         self._ground_elements.append(line_x)
         
-        line_y = self.ax.plot([0, 0], [-size, size], [0, 0], color='#2ecc71', linewidth=1.5)[0]
+        line_y = self.ax.plot([0, 0], [-axis_len, axis_len], [0, 0], color='#2ecc71', linewidth=1.5)[0]
         self._ground_elements.append(line_y)
         
         line_z = self.ax.plot([0, 0], [0, 0], [0, z_max], color='#3498db', linewidth=1.5)[0]
         self._ground_elements.append(line_z)
 
         # Labels for the origin axes
-        txt_x = self.ax.text(size * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
-        txt_y = self.ax.text(0, size * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
+        txt_x = self.ax.text(axis_len * 1.05, 0, 0, 'X', color='#e74c3c', fontsize=10, fontweight='bold')
+        txt_y = self.ax.text(0, axis_len * 1.05, 0, 'Y', color='#2ecc71', fontsize=10, fontweight='bold')
         txt_z = self.ax.text(0, 0, z_max * 1.05, 'Z', color='#3498db', fontsize=10, fontweight='bold')
         self._ground_elements.extend([txt_x, txt_y, txt_z])
 
@@ -508,13 +542,11 @@ class ArmCanvas(FigureCanvas):
         self.ax.set_zlim([0.0, z_max])
         # Update ground and grid to new radius
         self.update_ground(xy_max)
-        # Update box aspect to match data ranges
-        x_range = 2 * xy_max
-        y_range = 2 * xy_max
-        z_range = z_max
-        self.ax.set_box_aspect((x_range, y_range, z_range))
         # Set camera distance (perspective) to a comfortable multiple of scene size
-        self.ax.dist = max(x_range, y_range, z_range) * 2.5
+        self.ax.dist = max(xy_max * 2, z_max) * 2.5
+        
+        # Apply responsive limits and box aspect to fill widget
+        self._update_aspect_ratio()
         self.draw_idle()
 
     def draw_chain(self, positions, base_height=None):
