@@ -8,6 +8,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 import numpy as np
+import time
 from backend.meshes import cylinder_mesh, sphere_mesh, cuboid_mesh
 from backend.kinematics import ArmConfig
 
@@ -61,6 +62,10 @@ class ArmCanvas(FigureCanvas):
 
         # Collision state
         self.colliding_segments = set()
+
+        # Performance caching
+        self._last_positions = None
+        self._last_render_time = 0.0
 
         # Trajectory trace
         self.trajectory_points = []
@@ -365,41 +370,33 @@ class ArmCanvas(FigureCanvas):
         positions: (5, 3) numpy array of joint coordinates: [shoulder, elbow, wrist, tip, ?]
         We expect positions from compute_arm_positions with 6 points? We'll adapt to use first 5.
         """
-        # Hide idle overlay — data has arrived
-        self.set_idle_message(False)
-
-        # We no longer clear everything every frame.
-        # Instead, we'll update vertices of existing collections.
-        pass
+        # Render rate limiting (approx 30fps)
+        current_time = time.time()
+        if current_time - self._last_render_time < 0.033:
+            return
 
         # Ensure positions shape
         if positions.shape[0] >= 5:
-            pts = positions[:5]  # 0:base?, actually compute_arm_positions returns 6 points; we want index 1..4? Let's define:
-            # Our expected ordering: 0: base (at shoulder base), 1: shoulder, 2: elbow, 3: wrist, 4: tip
-            # But compute_arm_positions returns: 0: base (0,0,0), 1: shoulder, 2: elbow, 3: wrist, 4: tip, 5: duplicate tip.
-            # We'll use positions[1:5] as the actual arm joints, and base as separate.
-            # However we also need the shoulder point which is at (0,0,base_height). The base of arm is at (0,0,base_height).
             shoulder_pt = positions[1] if positions.shape[0] >= 5 else positions[0]
             elbow_pt = positions[2] if positions.shape[0] >= 5 else positions[1]
             wrist_pt = positions[3] if positions.shape[0] >= 5 else positions[2]
             tip_pt = positions[4] if positions.shape[0] >= 5 else positions[3]
             base_pt = np.array([0.0, 0.0, self.config.base_height])
         else:
-            # Not enough points, cannot draw
             return
 
-        # Detect collisions
-        coll = self._detect_collisions(np.array([base_pt, shoulder_pt, elbow_pt, wrist_pt, tip_pt]))
+        # Position caching to skip redundant renders
+        current_positions = np.array([base_pt, shoulder_pt, elbow_pt, wrist_pt, tip_pt])
+        if self._last_positions is not None and self._last_positions.shape == current_positions.shape and np.allclose(self._last_positions, current_positions, atol=1e-4):
+            return
+        self._last_positions = current_positions
+        self._last_render_time = current_time
 
-        # Proportional scaling based on arm dimensions
-        # We use upper_arm_length as the primary scale reference
-        scale = max(0.1, self.config.upper_arm_length)
-        base_w = max(0.06, scale * 0.4)
-        joint_r_large = max(0.015, scale * 0.1)
-        joint_r_small = joint_r_large * 0.7
-        link_r_upper = joint_r_large * 0.8
-        link_r_lower = joint_r_large * 0.6
-        link_r_gripper = joint_r_large * 0.4
+        # Hide idle overlay — data has arrived
+        self.set_idle_message(False)
+
+        # Detect collisions
+        coll = self._detect_collisions(current_positions)
 
         # Proportional scaling with tapering
         scale = max(0.1, self.config.upper_arm_length)
@@ -420,29 +417,29 @@ class ArmCanvas(FigureCanvas):
         plate_h = 0.01
         p_start = np.array([0, 0, 0])
         p_end = np.array([0, 0, plate_h])
-        p_verts, p_faces = cylinder_mesh(p_start, p_end, base_plate_w/2, resolution=24)
+        p_verts, p_faces = cylinder_mesh(p_start, p_end, base_plate_w/2, resolution=16)
         self._update_mesh('base_plate', p_verts, p_faces, '#444')
 
         # Draw / Update base cylinder (pedestal)
         base_h = self.config.base_height
         b_start = np.array([0, 0, plate_h])
         b_end = np.array([0, 0, base_h])
-        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w/2, resolution=24)
+        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w/2, resolution=16)
         base_color = self.collision_color if 'base' in coll else self.default_colors['base']
         self._update_mesh('base', base_verts, base_faces, base_color)
 
         # Draw / Update upper arm cylinder (shoulder -> elbow)
-        upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, link_r_upper, resolution=20)
+        upper_verts, upper_faces = cylinder_mesh(shoulder_pt, elbow_pt, link_r_upper, resolution=14)
         upper_color = self.collision_color if 'upper' in coll else self.default_colors['upper']
         self._update_mesh('upper', upper_verts, upper_faces, upper_color)
 
         # Draw / Update lower arm cylinder (elbow -> wrist)
-        lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, link_r_lower, resolution=16)
+        lower_verts, lower_faces = cylinder_mesh(elbow_pt, wrist_pt, link_r_lower, resolution=12)
         lower_color = self.collision_color if 'lower' in coll else self.default_colors['lower']
         self._update_mesh('lower', lower_verts, lower_faces, lower_color)
 
         # Draw / Update gripper cylinder (wrist -> tip)
-        gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, link_r_gripper, resolution=12)
+        gripper_verts, gripper_faces = cylinder_mesh(wrist_pt, tip_pt, link_r_gripper, resolution=8)
         gripper_color = self.collision_color if 'gripper' in coll else self.default_colors['gripper']
         self._update_mesh('gripper', gripper_verts, gripper_faces, gripper_color)
 
@@ -465,7 +462,7 @@ class ArmCanvas(FigureCanvas):
             c.remove()
 
         for i, (pt, radius, coll_name, color_key) in enumerate(joint_data):
-            j_verts, j_faces = sphere_mesh(pt, radius, resolution=16)
+            j_verts, j_faces = sphere_mesh(pt, radius, resolution=8)
             j_color = self.collision_color if coll_name in coll else self.default_colors[color_key]
             self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
             self.meshes['joints'][i].set_facecolor(j_color)
@@ -474,7 +471,7 @@ class ArmCanvas(FigureCanvas):
             self.meshes['joints'][i].set_visible(True)
 
         # Adjust axis limits to fit arm and ground
-        self._adjust_limits(np.array([base_pt, shoulder_pt, elbow_pt, wrist_pt, tip_pt]))
+        self._adjust_limits(current_positions)
         self.draw_idle()
 
     def _update_mesh(self, key: str, verts: np.ndarray, faces: list, color: str):
@@ -497,8 +494,17 @@ class ArmCanvas(FigureCanvas):
         max_v = np.max(positions[:, 2])
         
         # If the robot is significantly different from current limits, reframing is needed
-        # We use a 20% margin to avoid jitter
-        if max_h > self.workspace_radius or max_h < self.workspace_radius * 0.5:
+        # We use a hysteresis margin: only re-frame if bounds exceeded, or bounds are 2.5x too large
+        current_r = getattr(self, 'workspace_radius', 0.5)
+        current_z = getattr(self, 'workspace_z_max', 0.6)
+        
+        needs_reframe = False
+        if max_h > current_r * 0.95 or max_v > current_z * 0.95:
+             needs_reframe = True
+        elif max_h < current_r * 0.4 and max_v < current_z * 0.4:
+             needs_reframe = True
+             
+        if needs_reframe:
              self.frame_to_fit_robot(max_h, max_v)
 
     def set_trajectory(self, points):
@@ -661,6 +667,20 @@ class ArmCanvas(FigureCanvas):
         positions: (N+1, 3) numpy array where positions[0] is base origin and positions[-1] is end-effector.
         base_height: optional height of base from ground; if None, uses positions[0,2].
         """
+        # Render rate limiting (approx 30fps)
+        current_time = time.time()
+        if current_time - self._last_render_time < 0.033:
+            return
+
+        if positions.shape[0] < 2:
+            return
+
+        # Position caching to skip redundant renders
+        if self._last_positions is not None and self._last_positions.shape == positions.shape and np.allclose(self._last_positions, positions, atol=1e-4):
+            return
+        self._last_positions = positions.copy()
+        self._last_render_time = current_time
+
         # Hide idle overlay — data has arrived
         self.set_idle_message(False)
 
@@ -668,13 +688,10 @@ class ArmCanvas(FigureCanvas):
         for key in ['base', 'upper', 'lower', 'gripper']:
             if self.meshes[key]:
                 self.meshes[key].set_visible(False)
-        # Clear custom link collections as they might change size
+        
+        # Hide custom links initially (they will be un-hidden if used)
         for coll in self.meshes['custom_links']:
-            coll.remove()
-        self.meshes['custom_links'].clear()
-
-        if positions.shape[0] < 2:
-            return
+            coll.set_visible(False)
 
         if base_height is None:
             base_height = positions[0, 2]
@@ -716,7 +733,7 @@ class ArmCanvas(FigureCanvas):
         # Draw / Update base cylinder
         b_start = np.array([0, 0, plate_h])
         b_end = np.array([0, 0, max(plate_h + 1e-4, base_height)])
-        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w / 2, resolution=24)
+        base_verts, base_faces = cylinder_mesh(b_start, b_end, base_w / 2, resolution=16)
         self._update_mesh('base', base_verts, base_faces, self.default_colors['base'])
 
         # Sync custom_links and joints list
@@ -752,7 +769,7 @@ class ArmCanvas(FigureCanvas):
 
             # ── Link cylinder ──────────────────────────────────────────────
             if seg_len > 1e-4:   # skip zero-length DH links (no mesh = no stretch)
-                verts, faces = cylinder_mesh(start_pt, end_pt, curr_link_r, resolution=16)
+                verts, faces = cylinder_mesh(start_pt, end_pt, curr_link_r, resolution=12)
                 if faces:
                     if i == 0:
                         color = self.default_colors['upper']
@@ -780,7 +797,7 @@ class ArmCanvas(FigureCanvas):
                              else 'joint_wrist')
                 j_color = self.default_colors[color_key]
 
-            j_verts, j_faces = sphere_mesh(end_pt, curr_joint_r, resolution=16)
+            j_verts, j_faces = sphere_mesh(end_pt, curr_joint_r, resolution=8)
             if j_faces:
                 self.meshes['joints'][i].set_verts([j_verts[f] for f in j_faces])
                 self.meshes['joints'][i].set_facecolor(j_color)

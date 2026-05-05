@@ -1,0 +1,6 @@
+DEBUG: Joint 1 (Base Yaw) reach contribution: 0.2600
+DEBUG: Joint 2 (Elbow Yaw) reach contribution: 0.2600
+DEBUG: Joint 3 (Wrist Yaw) reach contribution: 0.1800
+DEBUG: Joint 4 (Vertical (Z)) reach contribution: 0.1800
+WARNING   robosim.backend.kinematics — IK FAILED | best_err=0.19169 (threshold 0.05 m) | target=(-0.2580,-0.5660,0.2050)
+Solution: None
