@@ -67,9 +67,14 @@ class ArmCanvas(FigureCanvas):
         self._last_positions = None
         self._last_render_time = 0.0
 
-        # Trajectory trace
+        # Trajectory trace (Planner)
         self.trajectory_points = []
         self._traj_line = None
+
+        # Real-time EE Path Trace
+        self._ee_trace_enabled: bool = False
+        self._ee_trace_points = []
+        self._ee_trace_line = None
 
         # Obstacles
         self.obstacles = []
@@ -190,6 +195,8 @@ class ArmCanvas(FigureCanvas):
         self.obstacles = []
         self.trajectory_points = []
         self._traj_line = None
+        self._ee_trace_points = []
+        self._ee_trace_line = None
         self.colliding_segments = set()
         self._ground_elements = []  # will be repopulated by _add_static_ground
         self._setup_axes()
@@ -472,6 +479,10 @@ class ArmCanvas(FigureCanvas):
 
         # Adjust axis limits to fit arm and ground
         self._adjust_limits(current_positions)
+        
+        # Update EE Trace
+        self._update_ee_trace(tip_pt)
+        
         self.draw_idle()
 
     def _update_mesh(self, key: str, verts: np.ndarray, faces: list, color: str):
@@ -521,6 +532,47 @@ class ArmCanvas(FigureCanvas):
         else:
             self._traj_line = None
         self.draw_idle()
+
+    # ── EE Path Tracing ───────────────────────────────────────────────────
+
+    def set_trace_enabled(self, enabled: bool):
+        """Enable or disable the real-time end-effector path trace."""
+        self._ee_trace_enabled = enabled
+        if not enabled and self._ee_trace_line:
+            self._ee_trace_line.set_visible(False)
+        elif enabled and self._ee_trace_line:
+            self._ee_trace_line.set_visible(True)
+        self.draw_idle()
+
+    def clear_trace(self):
+        """Clear the current path trace history."""
+        self._ee_trace_points.clear()
+        if self._ee_trace_line is not None:
+            try:
+                self._ee_trace_line.remove()
+            except (ValueError, AttributeError, NotImplementedError):
+                pass
+            self._ee_trace_line = None
+        self.draw_idle()
+
+    def _update_ee_trace(self, ee_pos: np.ndarray):
+        """Internal method to update the trace line with the latest position."""
+        if not self._ee_trace_enabled:
+            return
+
+        self._ee_trace_points.append(ee_pos.copy())
+        pts = np.array(self._ee_trace_points)
+
+        if self._ee_trace_line is None:
+            # Solid red line, 2px thick as requested
+            self._ee_trace_line = self.ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], 
+                                               color='#FF0000', linewidth=2.5, alpha=1.0)[0]
+        else:
+            self._ee_trace_line.set_data(pts[:, 0], pts[:, 1])
+            self._ee_trace_line.set_3d_properties(pts[:, 2])
+            self._ee_trace_line.set_visible(True)
+
+    # ── View Controls ─────────────────────────────────────────────────────
 
     def set_view(self, name: str = None, elev: float = None, azim: float = None):
         """Set camera view.
@@ -809,6 +861,10 @@ class ArmCanvas(FigureCanvas):
 
         # Adjust viewport to fit the new chain size
         self._adjust_limits(positions)
+        
+        # Update EE Trace
+        self._update_ee_trace(positions[-1])
+
         self.draw_idle()
 
     def toggle_ground(self, visible: bool):

@@ -592,6 +592,35 @@ class MainWindow(QMainWindow):
         self.chk_ground.toggled.connect(self._toggle_ground)
         tb_layout.addWidget(self.chk_ground)
 
+        # Space separator
+        spacer = QWidget()
+        spacer.setFixedWidth(8)
+        tb_layout.addWidget(spacer)
+
+        # EE Path Trace toggle
+        self.chk_trace = QCheckBox("Trace Path")
+        self.chk_trace.setChecked(False)
+        self.chk_trace.setStyleSheet("color: #e74c3c; font-size: 10px; spacing: 5px; font-weight: bold;")
+        self.chk_trace.toggled.connect(self._toggle_trace)
+        tb_layout.addWidget(self.chk_trace)
+
+        # Clear Trace button
+        self.btn_clear_trace = QPushButton("Clear Trace")
+        self.btn_clear_trace.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #89929b;
+                border: 1px solid #353535;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 9px;
+            }
+            QPushButton:hover { background-color: #353535; color: #e5e2e1; }
+        """)
+        self.btn_clear_trace.clicked.connect(self._clear_trace)
+        tb_layout.addWidget(self.btn_clear_trace)
+
+
         tb_layout.addSeparator = lambda: None  # dummy for spacing
         tb_layout.addStretch()
 
@@ -1221,6 +1250,14 @@ class MainWindow(QMainWindow):
             )
             self._replay_buffer.record(frame)
 
+    def _toggle_trace(self, checked: bool):
+        """Enable or disable EE path tracing in the viewport."""
+        self.arm_canvas.set_trace_enabled(checked)
+
+    def _clear_trace(self):
+        """Clear the current EE path trace history."""
+        self.arm_canvas.clear_trace()
+
     def _on_show_analysis(self):
         """Launch the Robot Analysis Dashboard."""
         from frontend.panels.analysis_dashboard import AnalysisDashboard
@@ -1244,6 +1281,11 @@ class MainWindow(QMainWindow):
         buf = self._replay_buffer
         if not buf or idx >= len(buf):
             return
+        
+        # Auto-reset trace if playing from the start
+        if idx == 0:
+            self.arm_canvas.clear_trace()
+
         frame = buf.get_frame(idx)
         self._render_delegate(frame)
 
