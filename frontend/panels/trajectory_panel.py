@@ -504,17 +504,24 @@ class TrajectoryPanel(QWidget):
             
             if self.target_queue:
                 self.pause_timer.start(1000)
+            else:
+                self.btn_load_csv.setEnabled(True)
+                
             self._var_joint_indices = None
             self.animation_start_angles = []
 
     def _stop_clicked(self):
         if self.animation_timer:
             self.animation_timer.stop()
+        if self.pause_timer.isActive():
+            self.pause_timer.stop()
+        self.target_queue.clear()
         self.animating = False
         self.animation_start_angles = []
         self.btn_animate.setEnabled(True)
         self.btn_set.setEnabled(True)
         self.btn_stop.setEnabled(False)
+        self.btn_load_csv.setEnabled(True)
         log.info("Animation stopped by user")
         self.lbl_status.setText("⬤  Stopped")
         self.lbl_status.setStyleSheet("color: #e74c3c; font-size: 11px; padding: 4px 0;")
