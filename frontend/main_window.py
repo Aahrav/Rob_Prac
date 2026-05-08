@@ -548,6 +548,22 @@ class MainWindow(QMainWindow):
         self.section_ee.setContentLayout(ee_layout)
         self.left_layout.addWidget(self.section_ee)
 
+        # ── SECTION 6: CV Hand Gesture Control ──────────────────────────
+        self.section_cv = AccordionSection("CV Hand Control")
+
+        from frontend.panels.cv_hand_panel import CVHandPanel
+        self.cv_hand_panel = CVHandPanel()
+        self.cv_hand_panel.joint_delta_changed.connect(self._on_cv_joint_value)
+        self.cv_hand_panel.estop_triggered.connect(self._on_cv_estop)
+        # Pre-populate joints for current mode
+        self.cv_hand_panel.set_standard_joints(self.kinematics_config)
+
+        cv_layout = QVBoxLayout()
+        cv_layout.setContentsMargins(0, 0, 0, 0)
+        cv_layout.addWidget(self.cv_hand_panel)
+        self.section_cv.setContentLayout(cv_layout)
+        self.left_layout.addWidget(self.section_cv)
+
         self.left_layout.addStretch()
 
     def _setup_right_panel(self):
@@ -703,6 +719,11 @@ class MainWindow(QMainWindow):
         self.trajectory_panel.target_angles_updated.connect(self._on_target_angles)
         self._on_robot_config_changed(self.kinematics_config)
         self._update_panel_visibility()
+
+        # Ctrl+H → toggle CV Hand Control accordion
+        cv_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
+        cv_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        cv_shortcut.activated.connect(self.section_cv._toggle)
 
         cal_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
         cal_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -1122,6 +1143,8 @@ class MainWindow(QMainWindow):
         self.arm_canvas.update_workspace_boundary(max_reach)
         if hasattr(self, 'ee_map'):
             self.ee_map.update_workspace(max_reach)
+        if hasattr(self, 'cv_hand_panel'):
+            self.cv_hand_panel.set_standard_joints(config)
         self.trajectory_panel.update_config(config)
         x, y, z = self.trajectory_panel.current_pos
         result = inverse_kinematics_3dof(x, y, z, config=config, elbow_down=True)
@@ -1174,6 +1197,8 @@ class MainWindow(QMainWindow):
     def _on_chain_updated(self, chain):
         if self.mode == 'custom':
             self.trajectory_panel.set_chain(chain)
+            if hasattr(self, 'cv_hand_panel'):
+                self.cv_hand_panel.set_chain(chain)
             self._refresh_arm_display()
             angles = []
             for joint in chain.joints:
@@ -1382,6 +1407,55 @@ class MainWindow(QMainWindow):
         self._update_ee_display(x, y, z)
 
     # ═══════════════════════════════════════════════════════════════════════
+    #  CV Hand Gesture Control handlers
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_cv_joint_value(self, joint_index: int, delta: float) -> None:
+        """
+        Called every hand-tracking frame.
+        Updates the selected joint angle in whichever mode is active using relative joystick-style movement.
+        """
+        if self.mode == 'standard':
+            # Map first 3 variable joints onto q1/q2/q3
+            angles = list(self.current_angles)
+            if joint_index < len(angles):
+                angles[joint_index] += delta
+            q1 = angles[0] if len(angles) > 0 else 0.0
+            q2 = angles[1] if len(angles) > 1 else 0.0
+            q3 = angles[2] if len(angles) > 2 else 0.0
+            # _apply_target_angles automatically updates spinboxes which handles clamping
+            self._apply_target_angles(q1, q2, q3)
+            self._log_telemetry([q1, q2, q3], self.arm_canvas._last_positions[-1]
+                                 if self.arm_canvas._last_positions is not None else [0, 0, 0])
+        else:
+            # Custom DH mode
+            chain = self.chain_panel.chain
+            var_joints = [j for j in chain.joints if j.type in ('revolute', 'prismatic')]
+            if joint_index < len(var_joints):
+                j = var_joints[joint_index]
+                if j.type == 'revolute':
+                    j.theta += delta
+                    if j.q_min is not None:
+                        j.theta = max(j.q_min, min(j.theta, j.q_max))
+                else:
+                    j.d += delta
+                    if j.q_min is not None:
+                        j.d = max(j.q_min, min(j.d, j.q_max))
+            self.chain_panel._compute_and_emit_fk()
+            self._refresh_arm_display()
+
+    def _on_cv_estop(self) -> None:
+        """Emergency stop — two hands detected. Freeze the arm at current pose."""
+        self.sb_message.setText(
+            "⚠ CV ESTOP — Two hands detected. Arm frozen. Remove one hand to resume."
+        )
+        self.sb_message.setStyleSheet("color: #e74c3c; font-size: 10px; font-weight: 700;")
+        QTimer.singleShot(
+            4000,
+            lambda: self.sb_message.setStyleSheet("color: #89929b; font-size: 10px;")
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════
     #  Viewport controls
     # ═══════════════════════════════════════════════════════════════════════
 
@@ -1523,4 +1597,7 @@ class MainWindow(QMainWindow):
         """Clean up worker threads and open file handles on window close."""
         self._stop_current_mode()
         self._close_record_csv()
+        # Stop CV hand controller if running
+        if hasattr(self, 'cv_hand_panel'):
+            self.cv_hand_panel._stop_cv()
         super().closeEvent(event)

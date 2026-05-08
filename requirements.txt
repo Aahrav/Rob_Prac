@@ -13,3 +13,7 @@ numpy>=1.20
 
 # Hardware integration
 pyserial>=3.5
+
+# CV Hand Gesture Control (optional — feature degrades gracefully if absent)
+mediapipe>=0.10
+opencv-python>=4.8
